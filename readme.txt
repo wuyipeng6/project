@@ -5,6 +5,7 @@
 
 该网关实现了传感器数据采集（SHT20）、执行器远程控制（SG90）、本地状态显示（TFTLCD）、Web 端参数配置以及云端（MQTT）双向通信，并具备 OTA 远程固件升级 能力。
 
+开发平台vscode+EIDE插件
 2. 硬件资源
 
 主控：STM32F407ZGT6 (Cortex-M4, 168MHz, 1MB Flash, 192KB RAM)
