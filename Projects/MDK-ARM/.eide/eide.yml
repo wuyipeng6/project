@@ -1,0 +1,305 @@
+version: "4.1"
+name: IoTGateway
+type: ARM
+deviceName: null
+packDir: .pack/Keil/STM32F4xx_DFP.2.16.0
+srcDirs: []
+virtualFolder:
+  name: <virtual_root>
+  files: []
+  folders:
+    - name: Startup
+      files:
+        - path: ../../Drivers/CMSIS/Device/ST/STM32F4xx/Source/Templates/arm/startup_stm32f407xx.s
+      folders: []
+    - name: User
+      files:
+        - path: ../../User/main.c
+        - path: ../../User/stm32f4xx_it.c
+        - path: ../../Drivers/CMSIS/Device/ST/STM32F4xx/Source/Templates/system_stm32f4xx.c
+        - path: ../../User/freertos_demo.c
+      folders: []
+    - name: Drivers
+      files: []
+      folders:
+        - name: SYSTEM
+          files:
+            - path: ../../Drivers/SYSTEM/delay/delay.c
+            - path: ../../Drivers/SYSTEM/sys/sys.c
+            - path: ../../Drivers/SYSTEM/usart/usart.c
+          folders: []
+        - name: STM32F4xx_HAL_Driver
+          files:
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_usart.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma_ex.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sram.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_fsmc.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_eth.c
+          folders: []
+        - name: BSP
+          files:
+            - path: ../../Drivers/BSP/LED/led.c
+            - path: ../../Drivers/BSP/LCD/lcd.c
+            - path: ../../Drivers/BSP/KEY/key.c
+            - path: ../../Drivers/BSP/SRAM/sram.c
+            - path: ../../Drivers/BSP/ETHERNET/ethernet.c
+          folders: []
+    - name: Middlewares
+      files: []
+      folders:
+        - name: USMART
+          files:
+            - path: ../../Middlewares/USMART/usmart.c
+            - path: ../../Middlewares/USMART/usmart_config.c
+            - path: ../../Middlewares/USMART/usmart_port.c
+            - path: ../../Middlewares/USMART/usmart_str.c
+          folders: []
+        - name: MALLOC
+          files:
+            - path: ../../Middlewares/MALLOC/malloc.c
+          folders: []
+        - name: lwip
+          files: []
+          folders:
+            - name: src
+              files: []
+              folders:
+                - name: api
+                  files:
+                    - path: ../../Middlewares/LWIP/src/api/api_lib.c
+                    - path: ../../Middlewares/LWIP/src/api/api_msg.c
+                    - path: ../../Middlewares/LWIP/src/api/err.c
+                    - path: ../../Middlewares/LWIP/src/api/if_api.c
+                    - path: ../../Middlewares/LWIP/src/api/netbuf.c
+                    - path: ../../Middlewares/LWIP/src/api/netdb.c
+                    - path: ../../Middlewares/LWIP/src/api/netifapi.c
+                    - path: ../../Middlewares/LWIP/src/api/sockets.c
+                    - path: ../../Middlewares/LWIP/src/api/tcpip.c
+                  folders: []
+                - name: core
+                  files:
+                    - path: ../../Middlewares/LWIP/src/core/altcp.c
+                    - path: ../../Middlewares/LWIP/src/core/altcp_alloc.c
+                    - path: ../../Middlewares/LWIP/src/core/altcp_tcp.c
+                    - path: ../../Middlewares/LWIP/src/core/def.c
+                    - path: ../../Middlewares/LWIP/src/core/dns.c
+                    - path: ../../Middlewares/LWIP/src/core/inet_chksum.c
+                    - path: ../../Middlewares/LWIP/src/core/init.c
+                    - path: ../../Middlewares/LWIP/src/core/ip.c
+                    - path: ../../Middlewares/LWIP/src/core/mem.c
+                    - path: ../../Middlewares/LWIP/src/core/memp.c
+                    - path: ../../Middlewares/LWIP/src/core/netif.c
+                    - path: ../../Middlewares/LWIP/src/core/pbuf.c
+                    - path: ../../Middlewares/LWIP/src/core/raw.c
+                    - path: ../../Middlewares/LWIP/src/core/stats.c
+                    - path: ../../Middlewares/LWIP/src/core/sys.c
+                    - path: ../../Middlewares/LWIP/src/core/tcp.c
+                    - path: ../../Middlewares/LWIP/src/core/tcp_in.c
+                    - path: ../../Middlewares/LWIP/src/core/tcp_out.c
+                    - path: ../../Middlewares/LWIP/src/core/timeouts.c
+                    - path: ../../Middlewares/LWIP/src/core/udp.c
+                    - path: ../../Middlewares/LWIP/src/core/ipv4/autoip.c
+                    - path: ../../Middlewares/LWIP/src/core/ipv4/dhcp.c
+                    - path: ../../Middlewares/LWIP/src/core/ipv4/etharp.c
+                    - path: ../../Middlewares/LWIP/src/core/ipv4/icmp.c
+                    - path: ../../Middlewares/LWIP/src/core/ipv4/igmp.c
+                    - path: ../../Middlewares/LWIP/src/core/ipv4/ip4.c
+                    - path: ../../Middlewares/LWIP/src/core/ipv4/ip4_addr.c
+                    - path: ../../Middlewares/LWIP/src/core/ipv4/ip4_frag.c
+                  folders: []
+                - name: netif
+                  files:
+                    - path: ../../Middlewares/LWIP/src/netif/ethernet.c
+                  folders: []
+            - name: arch
+              files:
+                - path: ../../Middlewares/LWIP/arch/ethernetif.c
+                - path: ../../Middlewares/LWIP/arch/lwip_comm.c
+                - path: ../../Middlewares/LWIP/arch/sys_arch.c
+              folders: []
+        - name: FreeRTOS_CORE
+          files:
+            - path: ../../Middlewares/FreeRTOS/croutine.c
+            - path: ../../Middlewares/FreeRTOS/event_groups.c
+            - path: ../../Middlewares/FreeRTOS/list.c
+            - path: ../../Middlewares/FreeRTOS/queue.c
+            - path: ../../Middlewares/FreeRTOS/stream_buffer.c
+            - path: ../../Middlewares/FreeRTOS/tasks.c
+            - path: ../../Middlewares/FreeRTOS/timers.c
+          folders: []
+        - name: FreeRTOS_PORT
+          files:
+            - path: ../../Middlewares/FreeRTOS/portable/MemMang/heap_4.c
+            - path: ../../Middlewares/FreeRTOS/portable/RVDS/ARM_CM4F/port.c
+          folders: []
+    - name: Readme
+      files:
+        - path: ../../readme.txt
+      folders: []
+dependenceList: []
+outDir: build
+miscInfo:
+  uid: cc51e4f464bad574886e5c6dc0fbb75f
+targets:
+  lwIP:
+    cppPreprocessAttrs:
+      defineList:
+        - USE_HAL_DRIVER
+        - STM32F407xx
+      incList:
+        - .
+        - ../../User
+        - ../../Drivers
+        - ../../Drivers/CMSIS/Device/ST/STM32F4xx/Include
+        - ../../Drivers/CMSIS/Include
+        - ../../Drivers/STM32F4xx_HAL_Driver/Inc
+        - ../../Middlewares
+        - ../../Middlewares/lwip/src/include
+        - ../../Middlewares/lwip/src/include/lwip
+        - ../../Middlewares/lwip/arch
+        - ../../Middlewares/lwip
+        - ../../Middlewares/FreeRTOS/include
+        - ../../Middlewares/FreeRTOS/portable/RVDS/ARM_CM4F
+        - .cmsis/include
+        - RTE/_lwIP
+        - ../../Apps
+      libList: []
+    excludeList: []
+    toolchain: AC5
+    toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks: []
+          asm-compiler:
+            defines: []
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-0
+            warnings: all-warnings
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            output-format: elf
+            ro-base: "0x08000000"
+            rw-base: "0x20000000"
+            xo-base: ""
+        scatterFilePath: ""
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 3
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x20000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 3
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x100000"
+                startAddr: "0x8000000"
+              tag: IROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: IROM
+        useCustomScatterFile: false
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: "null"
+          vendor: "null"
+        otherCmds: ""
+        proType: 1
+        speed: 8000
+      STLink:
+        address: "0x8000000"
+        bin: ""
+        elFile: None
+        optionBytes: .eide/lwip.st.option.bytes.ini
+        otherCmds: ""
+        proType: SWD
+        resetMode: default
+        runAfterProgram: true
+        speed: 4000
+    uploader: STLink
