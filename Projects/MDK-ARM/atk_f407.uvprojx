@@ -528,6 +528,16 @@
               <FileType>1</FileType>
               <FilePath>..\..\Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_eth.c</FilePath>
             </File>
+            <File>
+              <FileName>stm32f4xx_hal_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_i2c.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_i2c_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_i2c_ex.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -557,6 +567,11 @@
               <FileName>ethernet.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\Drivers\BSP\ETHERNET\ethernet.c</FilePath>
+            </File>
+            <File>
+              <FileName>sg90.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\Drivers\BSP\SG90\sg90.c</FilePath>
             </File>
           </Files>
         </Group>

@@ -21,6 +21,9 @@
 #include "freertos_demo.h"
 #include "./BSP/LED/led.h"
 #include "./BSP/LCD/lcd.h"
+#include "./BSP/TIMER/btim.h"
+#include "./BSP/SG90/sg90.h"
+#include "./BSP/SHT20/driver_sht2x_basic.h"
 #include "./SYSTEM/usart/usart.h"
 #include "./SYSTEM/delay/delay.h"
 #include "lwip_comm.h"
@@ -54,6 +57,22 @@ void lwip_demo_task(void *pvParameters); /* 任务函数 */
 #define LED_STK_SIZE 128		   /* 任务堆栈大小 */
 TaskHandle_t LEDTask_Handler;	   /* 任务句柄 */
 void led_task(void *pvParameters); /* 任务函数 */
+
+/* SHT20_TASK 任务 配置
+ * 包括: 任务句柄 任务优先级 堆栈大小 创建任务
+ */
+#define SHT20_TASK_PRIO 9			 /* 任务优先级 */
+#define SHT20_STK_SIZE 256			 /* 任务堆栈大小 */
+TaskHandle_t SHT20Task_Handler;		 /* 任务句柄 */
+void sht20_task(void *pvParameters); /* 任务函数 */
+
+/* SG90_TASK 任务 配置
+ * 包括: 任务句柄 任务优先级 堆栈大小 创建任务
+ */
+#define SG90_TASK_PRIO 8			/* 任务优先级 */
+#define SG90_STK_SIZE 256			/* 任务堆栈大小 */
+TaskHandle_t SG90Task_Handler;		/* 任务句柄 */
+void sg90_task(void *pvParameters); /* 任务函数 */
 /******************************************************************************************************/
 
 /**
@@ -151,16 +170,16 @@ void start_task(void *pvParameters)
 	{
 		printf("MCU与PHY芯片通信失败，请检查电路或者源码！！！！\r\n");
 	}
-	#if LWIP_DHCP															  /* 使用动态IP */
+#if LWIP_DHCP															  /* 使用动态IP */
 	while ((g_lwipdev.dhcpstatus != 2) && (g_lwipdev.dhcpstatus != 0XFF)) /* 等待DHCP获取成功*/
 	{
 		vTaskDelay(5);
 	}
-	#else 
+#else
 	{
 		lwip_test_ui(2); /* 加载后前部分UI */
 	}
-	#endif
+#endif
 	taskENTER_CRITICAL(); /* 进入临界区 */
 
 	/* 创建lwIP任务 */
@@ -178,6 +197,22 @@ void start_task(void *pvParameters)
 				(void *)NULL,
 				(UBaseType_t)LED_TASK_PRIO,
 				(TaskHandle_t *)&LEDTask_Handler);
+
+	/* SHT20温湿度采集并串口发送任务 */
+	xTaskCreate((TaskFunction_t)sht20_task,
+				(const char *)"sht20_task",
+				(uint16_t)SHT20_STK_SIZE,
+				(void *)NULL,
+				(UBaseType_t)SHT20_TASK_PRIO,
+				(TaskHandle_t *)&SHT20Task_Handler);
+
+	/* SG90任务：每秒移动45° */
+	xTaskCreate((TaskFunction_t)sg90_task,
+				(const char *)"sg90_task",
+				(uint16_t)SG90_STK_SIZE,
+				(void *)NULL,
+				(UBaseType_t)SG90_TASK_PRIO,
+				(TaskHandle_t *)&SG90Task_Handler);
 
 	vTaskDelete(StartTask_Handler); /* 删除开始任务 */
 	taskEXIT_CRITICAL();			/* 退出临界区 */
@@ -220,5 +255,87 @@ void led_task(void *pvParameters)
 	{
 		LED1_TOGGLE();
 		vTaskDelay(1000);
+	}
+}
+
+/**
+ * @brief       SHT20采集任务（读取温湿度并通过串口输出）
+ * @param       pvParameters : 传入参数(未用到)
+ * @retval      无
+ */
+void sht20_task(void *pvParameters)
+{
+	float temperature;
+	float humidity;
+
+	pvParameters = pvParameters;
+
+	while (sht2x_basic_init() != 0)
+	{
+		printf("SHT20 init failed, retry...\r\n");
+		vTaskDelay(pdMS_TO_TICKS(1000));
+	}
+
+	printf("SHT20 init success.\r\n");
+
+	while (1)
+	{
+		if (sht2x_basic_read(&temperature, &humidity) == 0)
+		{
+			printf("SHT20 T=%.2fC RH=%.2f%%\r\n", temperature, humidity);
+		}
+		else
+		{
+			printf("SHT20 read failed.\r\n");
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(1000));
+	}
+}
+
+/**
+ * @brief       SG90任务（每秒45°步进）
+ * @param       pvParameters : 传入参数(未用到)
+ * @retval      无
+ */
+void sg90_task(void *pvParameters)
+{
+	float angle = 0.0f;
+	int8_t dir = 1;
+
+	pvParameters = pvParameters;
+
+	/* TIM3_CH1(PA6): 50Hz, 1us计数分辨率 */
+	if (btim_tim3_ch1_pwm_init(20000 - 1, 84 - 1, SG90_MID_PULSE_US) != 0)
+	{
+		printf("SG90 timer init failed.\r\n");
+		vTaskDelete(NULL);
+	}
+
+	if (sg90_init() != 0)
+	{
+		printf("SG90 init failed.\r\n");
+		vTaskDelete(NULL);
+	}
+
+	sg90_set_angle(angle);
+
+	while (1)
+	{
+		vTaskDelay(pdMS_TO_TICKS(1000));
+
+		angle += (float)(45 * dir);
+		if (angle >= 180.0f)
+		{
+			angle = 180.0f;
+			dir = -1;
+		}
+		else if (angle <= 0.0f)
+		{
+			angle = 0.0f;
+			dir = 1;
+		}
+
+		sg90_set_angle(angle);
 	}
 }

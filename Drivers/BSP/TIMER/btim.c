@@ -1,138 +1,83 @@
-/**
- ****************************************************************************************************
- * @file        btim.c
- * @author      正点原子团队(ALIENTEK)
- * @version     V1.1
- * @date        2021-11-29
- * @brief       基本定时器 驱动代码
- * @license     Copyright (c) 2020-2032, 广州市星翼电子科技有限公司
- ****************************************************************************************************
- * @attention
- *
- * 实验平台:正点原子 STM32F407开发板
- * 在线视频:www.yuanzige.com
- * 技术论坛:www.openedv.com
- * 公司网址:www.alientek.com
- * 购买地址:openedv.taobao.com
- *
- * 修改说明
- * V1.0 20211015
- * 第一次发布
- * V1.1 20211129
- * 添加定时器3初始化函数与中断函数
- ****************************************************************************************************
- */
 
 #include "./BSP/TIMER/btim.h"
-#include "./SYSTEM/usart/usart.h"
-#include "./BSP/LED/led.h"
 
 
-extern uint32_t lwip_localtime;         /* lwip本地时间计数器,单位:ms */
+/*******************定时器3 CH1 输出PWM波，作为SG90舵机的控制信号输出********************/
 
-TIM_HandleTypeDef g_tim3_handler;       /* 定时器参数句柄 */
-TIM_HandleTypeDef g_tim6_handler;       /* 定时器参数句柄 */
+TIM_HandleTypeDef g_tim3_handler; /* 定时器参数句柄 */
 
 /**
- * @brief       基本定时器TIMX中断服务函数
- * @param       无
+ * @brief       TIM PWM底层驱动，开启时钟，初始化GPIO
+ * @note        此函数会被HAL_TIM_PWM_Init()函数调用
+ * @param       htim_pwm : TIM句柄
  * @retval      无
  */
-void BTIM_TIM3_INT_IRQHandler(void)
+void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef *htim_pwm)
 {
-    HAL_TIM_IRQHandler(&g_tim3_handler);  /* 定时器回调函数 */
-}
+	GPIO_InitTypeDef gpio_init_struct;
 
-void BTIM_TIM6_INT_IRQHandler(void)
-{
-    HAL_TIM_IRQHandler(&g_tim6_handler);  /* 定时器回调函数 */
-}
+	if (htim_pwm->Instance == TIM3)
+	{
+		__HAL_RCC_TIM3_CLK_ENABLE();
+		BTIM_TIM3_CH1_GPIO_CLK_ENABLE();
 
-/**
- * @brief       回调函数，定时器中断服务函数调用
- * @param       无
- * @retval      无
- */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim == (&g_tim3_handler))              /* 定时器3 */
-    {
-        lwip_localtime += 1;
-
-    }
-    else if(htim==(&g_tim6_handler))            /* 定时器6 */
-    {
-        LED1_TOGGLE();
-    }
+		gpio_init_struct.Pin = BTIM_TIM3_CH1_GPIO_PIN;
+		gpio_init_struct.Mode = GPIO_MODE_AF_PP;
+		gpio_init_struct.Pull = GPIO_NOPULL;
+		gpio_init_struct.Speed = GPIO_SPEED_FREQ_HIGH;
+		gpio_init_struct.Alternate = BTIM_TIM3_CH1_GPIO_AF;
+		HAL_GPIO_Init(BTIM_TIM3_CH1_GPIO_PORT, &gpio_init_struct);
+	}
 }
 
 /**
- * @brief       基本定时器TIMX定时中断初始化函数
- * @note
- *              基本定时器的时钟来自APB1,当PPRE1 ≥ 2分频的时候
- *              基本定时器的时钟为APB1时钟的2倍, 而APB1为42M, 所以定时器时钟 = 84Mhz
- *              定时器溢出时间计算方法: Tout = ((arr + 1) * (psc + 1)) / Ft us.
- *              Ft=定时器工作频率,单位:Mhz
- *
- * @param       arr: 自动重装值。
- * @param       psc: 时钟预分频数
- * @retval      无
+ * @brief       TIM3 CH1 PWM初始化（PA6）
+ * @note        可用于SG90舵机脉冲输出（典型: arr=20000-1, psc=84-1 -> 50Hz, 1us分辨率）
+ * @param       arr   : 自动重装值
+ * @param       psc   : 预分频值
+ * @param       pulse : 比较值（脉宽）
+ * @retval      0,成功; 1,失败
  */
-void btim_tim3_int_init(uint16_t arr, uint16_t psc)
+uint8_t btim_tim3_ch1_pwm_init(uint16_t arr, uint16_t psc, uint16_t pulse)
 {
-    g_tim3_handler.Instance = BTIM_TIM3_INT;                      /* 通用定时器X */
-    g_tim3_handler.Init.Prescaler = psc;                          /* 设置预分频器  */
-    g_tim3_handler.Init.CounterMode = TIM_COUNTERMODE_UP;         /* 向上计数器 */
-    g_tim3_handler.Init.Period = arr;                             /* 自动装载值 */
-    g_tim3_handler.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;   /* 时钟分频因子 */
-    HAL_TIM_Base_Init(&g_tim3_handler);
+	TIM_OC_InitTypeDef tim_oc_handle;
 
-    HAL_TIM_Base_Start_IT(&g_tim3_handler);                       /* 使能通用定时器x和及其更新中断：TIM_IT_UPDATE */
+	g_tim3_handler.Instance = TIM3;
+	g_tim3_handler.Init.Prescaler = psc;
+	g_tim3_handler.Init.CounterMode = TIM_COUNTERMODE_UP;
+	g_tim3_handler.Init.Period = arr;
+	g_tim3_handler.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	g_tim3_handler.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+
+	if (HAL_TIM_PWM_Init(&g_tim3_handler) != HAL_OK)
+	{
+		return 1;
+	}
+
+	tim_oc_handle.OCMode = TIM_OCMODE_PWM1;
+	tim_oc_handle.Pulse = pulse;
+	tim_oc_handle.OCPolarity = TIM_OCPOLARITY_HIGH;
+	tim_oc_handle.OCFastMode = TIM_OCFAST_DISABLE;
+
+	if (HAL_TIM_PWM_ConfigChannel(&g_tim3_handler, &tim_oc_handle, TIM_CHANNEL_1) != HAL_OK)
+	{
+		return 1;
+	}
+
+	if (HAL_TIM_PWM_Start(&g_tim3_handler, TIM_CHANNEL_1) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
- * @brief       基本定时器TIMX定时中断初始化函数
- * @note
- *              基本定时器的时钟来自APB1,当PPRE1 ≥ 2分频的时候
- *              基本定时器的时钟为APB1时钟的2倍, 而APB1为36M, 所以定时器时钟 = 72Mhz
- *              定时器溢出时间计算方法: Tout = ((arr + 1) * (psc + 1)) / Ft us.
- *              Ft=定时器工作频率,单位:Mhz
- *
- * @param       arr: 自动重装值。
- * @param       psc: 时钟预分频数
+ * @brief       设置TIM3 CH1比较值
+ * @param       compare : 比较值
  * @retval      无
  */
-void btim_tim6_int_init(uint16_t arr, uint16_t psc)
+void btim_tim3_ch1_set_compare(uint16_t compare)
 {
-    g_tim6_handler.Instance = BTIM_TIM6_INT;                      /* 通用定时器X */
-    g_tim6_handler.Init.Prescaler = psc;                          /* 设置预分频器  */
-    g_tim6_handler.Init.CounterMode = TIM_COUNTERMODE_UP;         /* 向上计数器 */
-    g_tim6_handler.Init.Period = arr;                             /* 自动装载值 */
-    g_tim6_handler.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;   /* 时钟分频因子 */
-    HAL_TIM_Base_Init(&g_tim6_handler);
-
-    HAL_TIM_Base_Start_IT(&g_tim6_handler);                       /* 使能通用定时器x和及其更新中断：TIM_IT_UPDATE */
+	__HAL_TIM_SET_COMPARE(&g_tim3_handler, TIM_CHANNEL_1, compare);
 }
-
-/**
- * @brief       定时器底册驱动，开启时钟，设置中断优先级
-                此函数会被HAL_TIM_Base_Init()函数调用
- * @param       无
- * @retval      无
- */
-void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *htim)
-{
-    if (htim->Instance == BTIM_TIM3_INT)
-    {
-        BTIM_TIM3_INT_CLK_ENABLE();                     /* 使能TIM时钟 */
-        HAL_NVIC_SetPriority(BTIM_TIM3_INT_IRQn, 1, 3); /* 抢占1，子优先级3，组2 */
-        HAL_NVIC_EnableIRQ(BTIM_TIM3_INT_IRQn);         /* 开启ITM3中断 */
-    }
-    if (htim->Instance == BTIM_TIM6_INT)
-    {
-        BTIM_TIM6_INT_CLK_ENABLE();                     /* 使能TIM时钟 */
-        HAL_NVIC_SetPriority(BTIM_TIM6_INT_IRQn, 0, 3); /* 抢占1，子优先级3，组2 */
-        HAL_NVIC_EnableIRQ(BTIM_TIM6_INT_IRQn);         /* 开启ITM3中断 */
-    }
-}
-

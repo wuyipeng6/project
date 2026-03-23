@@ -48,6 +48,8 @@ virtualFolder:
             - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c
             - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c
             - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_eth.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c
+            - path: ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c
           folders: []
         - name: BSP
           files:
@@ -56,7 +58,16 @@ virtualFolder:
             - path: ../../Drivers/BSP/KEY/key.c
             - path: ../../Drivers/BSP/SRAM/sram.c
             - path: ../../Drivers/BSP/ETHERNET/ethernet.c
-          folders: []
+            - path: ../../Drivers/BSP/MyIIC/myiic.c
+            - path: ../../Drivers/BSP/TIMER/btim.c
+            - path: ../../Drivers/BSP/SG90/sg90.c
+          folders:
+            - name: SHT20
+              files:
+                - path: ../../Drivers/BSP/SHT20/driver_sht2x.c
+                - path: ../../Drivers/BSP/SHT20/driver_sht2x_basic.c
+                - path: ../../Drivers/BSP/SHT20/driver_sht2x_interface_template.c
+              folders: []
     - name: Middlewares
       files: []
       folders:

@@ -91,7 +91,6 @@ void HAL_ETH_MspInit(ETH_HandleTypeDef *heth)
     ETH_TX_EN_GPIO_CLK_ENABLE();        /* 开启ETH_TX_EN时钟 */
     ETH_TXD0_GPIO_CLK_ENABLE();         /* 开启ETH_TXD0时钟 */
     ETH_TXD1_GPIO_CLK_ENABLE();         /* 开启ETH_TXD1时钟 */
-    ETH_RESET_GPIO_CLK_ENABLE();        /* 开启ETH_RESET时钟 */
     __HAL_RCC_ETH_CLK_ENABLE();         /* 开启ETH时钟 */
 
 
@@ -146,16 +145,8 @@ void HAL_ETH_MspInit(ETH_HandleTypeDef *heth)
     HAL_GPIO_Init(ETH_TXD1_GPIO_PORT, &gpio_init_struct);   /* ETH_TXD1初始化 */
     
     
-    /* 复位引脚 */
-    gpio_init_struct.Pin = ETH_RESET_GPIO_PIN;      /* ETH_RESET初始化 */
-    gpio_init_struct.Mode = GPIO_MODE_OUTPUT_PP;    /* 推挽输出 */
-    gpio_init_struct.Pull = GPIO_NOPULL;            /* 无上下拉 */
-    gpio_init_struct.Speed = GPIO_SPEED_HIGH;       /* 高速 */
-    HAL_GPIO_Init(ETH_RESET_GPIO_PORT, &gpio_init_struct);
-
-    ETHERNET_RST(0);     /* 硬件复位 */
     delay_ms(100);
-    ETHERNET_RST(1);     /* 复位结束 */
+
 
     HAL_NVIC_SetPriority(ETH_IRQn, 6, 0);           /* 网络中断优先级应该高一点 */
     HAL_NVIC_EnableIRQ(ETH_IRQn);

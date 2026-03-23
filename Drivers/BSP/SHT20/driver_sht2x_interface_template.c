@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2015 - present LibDriver All rights reserved
- * 
+ *
  * The MIT License (MIT)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,7 +19,7 @@
  * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE. 
+ * SOFTWARE.
  *
  * @file      driver_sht2x_interface_template.c
  * @brief     driver sht2x interface template source file
@@ -35,6 +35,18 @@
  */
 
 #include "driver_sht2x_interface.h"
+#include "stm32f4xx_hal.h"
+#include "./SYSTEM/delay/delay.h"
+#include "../MyIIC/myiic.h"
+#include <stdarg.h>
+
+#ifndef SHT2X_I2C_HANDLE
+#define SHT2X_I2C_HANDLE hi2c1
+#endif
+
+#ifndef SHT2X_I2C_TIMEOUT
+#define SHT2X_I2C_TIMEOUT 100U
+#endif
 
 /**
  * @brief  interface iic bus init
@@ -45,7 +57,12 @@
  */
 uint8_t sht2x_interface_iic_init(void)
 {
-    return 0;
+	if (myiic1_init() != 0)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -57,7 +74,12 @@ uint8_t sht2x_interface_iic_init(void)
  */
 uint8_t sht2x_interface_iic_deinit(void)
 {
-    return 0;
+	if (HAL_I2C_DeInit(&SHT2X_I2C_HANDLE) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -72,7 +94,12 @@ uint8_t sht2x_interface_iic_deinit(void)
  */
 uint8_t sht2x_interface_iic_write_command(uint8_t addr, uint8_t *buf, uint16_t len)
 {
-    return 0;
+	if (HAL_I2C_Master_Transmit(&SHT2X_I2C_HANDLE, addr, buf, len, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -88,7 +115,12 @@ uint8_t sht2x_interface_iic_write_command(uint8_t addr, uint8_t *buf, uint16_t l
  */
 uint8_t sht2x_interface_iic_write(uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len)
 {
-    return 0;
+	if (HAL_I2C_Mem_Write(&SHT2X_I2C_HANDLE, addr, reg, I2C_MEMADD_SIZE_8BIT, buf, len, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -103,7 +135,12 @@ uint8_t sht2x_interface_iic_write(uint8_t addr, uint8_t reg, uint8_t *buf, uint1
  */
 uint8_t sht2x_interface_iic_read_command(uint8_t addr, uint8_t *buf, uint16_t len)
 {
-    return 0;
+	if (HAL_I2C_Master_Receive(&SHT2X_I2C_HANDLE, addr, buf, len, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -119,7 +156,16 @@ uint8_t sht2x_interface_iic_read_command(uint8_t addr, uint8_t *buf, uint16_t le
  */
 uint8_t sht2x_interface_iic_read(uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len)
 {
-    return 0;
+	if (HAL_I2C_Master_Transmit(&SHT2X_I2C_HANDLE, addr, &reg, 1, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+	if (HAL_I2C_Master_Receive(&SHT2X_I2C_HANDLE, addr, buf, len, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -135,7 +181,16 @@ uint8_t sht2x_interface_iic_read(uint8_t addr, uint8_t reg, uint8_t *buf, uint16
  */
 uint8_t sht2x_interface_iic_read_with_wait(uint8_t addr, uint8_t reg, uint8_t *buf, uint16_t len)
 {
-    return 0;
+	if (HAL_I2C_Master_Transmit(&SHT2X_I2C_HANDLE, addr, &reg, 1, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+	if (HAL_I2C_Master_Receive(&SHT2X_I2C_HANDLE, addr, buf, len, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -151,7 +206,21 @@ uint8_t sht2x_interface_iic_read_with_wait(uint8_t addr, uint8_t reg, uint8_t *b
  */
 uint8_t sht2x_interface_iic_read_address16(uint8_t addr, uint16_t reg, uint8_t *buf, uint16_t len)
 {
-    return 0;
+	uint8_t cmd[2];
+
+	cmd[0] = (uint8_t)((reg >> 8) & 0xFF);
+	cmd[1] = (uint8_t)(reg & 0xFF);
+
+	if (HAL_I2C_Master_Transmit(&SHT2X_I2C_HANDLE, addr, cmd, 2, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+	if (HAL_I2C_Master_Receive(&SHT2X_I2C_HANDLE, addr, buf, len, SHT2X_I2C_TIMEOUT) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -161,7 +230,12 @@ uint8_t sht2x_interface_iic_read_address16(uint8_t addr, uint16_t reg, uint8_t *
  */
 void sht2x_interface_delay_ms(uint32_t ms)
 {
-
+	while (ms > 0xFFFFU)
+	{
+		delay_ms(0xFFFFU);
+		ms -= 0xFFFFU;
+	}
+	delay_ms((uint16_t)ms);
 }
 
 /**
@@ -171,5 +245,9 @@ void sht2x_interface_delay_ms(uint32_t ms)
  */
 void sht2x_interface_debug_print(const char *const fmt, ...)
 {
-    
+	va_list args;
+
+	va_start(args, fmt);
+	vprintf(fmt, args);
+	va_end(args);
 }
