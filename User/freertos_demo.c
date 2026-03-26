@@ -27,6 +27,7 @@
 #include "./SYSTEM/usart/usart.h"
 #include "./SYSTEM/delay/delay.h"
 #include "lwip_comm.h"
+#include "lwip_demo.h"
 #include "lwipopts.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -46,14 +47,14 @@ void start_task(void *pvParameters); /* 任务函数 */
  * 包括: 任务句柄 任务优先级 堆栈大小 创建任务
  */
 #define LWIP_DMEO_TASK_PRIO 11			 /* 任务优先级 */
-#define LWIP_DMEO_STK_SIZE 1024			 /* 任务堆栈大小 */
+#define LWIP_DMEO_STK_SIZE 2048			 /* 任务堆栈大小 */
 TaskHandle_t LWIP_Task_Handler;			 /* 任务句柄 */
 void lwip_demo_task(void *pvParameters); /* 任务函数 */
 
 /* LED_TASK 任务 配置
  * 包括: 任务句柄 任务优先级 堆栈大小 创建任务
  */
-#define LED_TASK_PRIO 10		   /* 任务优先级 */
+#define LED_TASK_PRIO 9		   /* 任务优先级 */
 #define LED_STK_SIZE 128		   /* 任务堆栈大小 */
 TaskHandle_t LEDTask_Handler;	   /* 任务句柄 */
 void led_task(void *pvParameters); /* 任务函数 */
@@ -198,24 +199,24 @@ void start_task(void *pvParameters)
 				(UBaseType_t)LED_TASK_PRIO,
 				(TaskHandle_t *)&LEDTask_Handler);
 
-	/* SHT20温湿度采集并串口发送任务 */
-	xTaskCreate((TaskFunction_t)sht20_task,
-				(const char *)"sht20_task",
-				(uint16_t)SHT20_STK_SIZE,
-				(void *)NULL,
-				(UBaseType_t)SHT20_TASK_PRIO,
-				(TaskHandle_t *)&SHT20Task_Handler);
+	// /* SHT20温湿度采集并串口发送任务 */
+	// xTaskCreate((TaskFunction_t)sht20_task,
+	// 			(const char *)"sht20_task",
+	// 			(uint16_t)SHT20_STK_SIZE,
+	// 			(void *)NULL,
+	// 			(UBaseType_t)SHT20_TASK_PRIO,
+	// 			(TaskHandle_t *)&SHT20Task_Handler);
 
-	/* SG90任务：每秒移动45° */
-	xTaskCreate((TaskFunction_t)sg90_task,
-				(const char *)"sg90_task",
-				(uint16_t)SG90_STK_SIZE,
-				(void *)NULL,
-				(UBaseType_t)SG90_TASK_PRIO,
-				(TaskHandle_t *)&SG90Task_Handler);
+	// /* SG90任务：每秒移动45° */
+	// xTaskCreate((TaskFunction_t)sg90_task,
+	// 			(const char *)"sg90_task",
+	// 			(uint16_t)SG90_STK_SIZE,
+	// 			(void *)NULL,
+	// 			(UBaseType_t)SG90_TASK_PRIO,
+	// 			(TaskHandle_t *)&SG90Task_Handler);
 
-	vTaskDelete(StartTask_Handler); /* 删除开始任务 */
 	taskEXIT_CRITICAL();			/* 退出临界区 */
+	vTaskDelete(StartTask_Handler); /* 删除开始任务 */
 }
 
 /**
@@ -225,21 +226,14 @@ void start_task(void *pvParameters)
  */
 void lwip_demo_task(void *pvParameters)
 {
-	pvParameters = pvParameters;
-
-	uint8_t t = 0;
-
-	while (1)
-	{
-		t++;
-
-		if ((t % 40) == 0)
-		{
-			LED0_TOGGLE(); /* 翻转一次LED0 */
-		}
-
-		vTaskDelay(5);
-	}
+    pvParameters = pvParameters;
+    
+    lwip_demo();
+    
+    while (1)
+    {
+        vTaskDelay(5);
+    }
 }
 
 /**

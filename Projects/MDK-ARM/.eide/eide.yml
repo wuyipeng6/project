@@ -135,11 +135,22 @@ virtualFolder:
                   files:
                     - path: ../../Middlewares/LWIP/src/netif/ethernet.c
                   folders: []
+                - name: apps
+                  files:
+                    - path: ../../Middlewares/lwip/src/apps/mqtt/mqtt.c
+                  folders: []
             - name: arch
               files:
                 - path: ../../Middlewares/LWIP/arch/ethernetif.c
                 - path: ../../Middlewares/LWIP/arch/lwip_comm.c
                 - path: ../../Middlewares/LWIP/arch/sys_arch.c
+              folders: []
+            - name: lwip_app
+              files:
+                - path: ../../Middlewares/lwip/lwip_app/token/hmac_sha1.c
+                - path: ../../Middlewares/lwip/lwip_app/token/onenet_base64.c
+                - path: ../../Middlewares/lwip/lwip_app/token/token.c
+                - path: ../../Middlewares/lwip/lwip_app/lwip_demo.c
               folders: []
         - name: FreeRTOS_CORE
           files:
@@ -156,10 +167,6 @@ virtualFolder:
             - path: ../../Middlewares/FreeRTOS/portable/MemMang/heap_4.c
             - path: ../../Middlewares/FreeRTOS/portable/RVDS/ARM_CM4F/port.c
           folders: []
-    - name: Readme
-      files:
-        - path: ../../readme.txt
-      folders: []
 dependenceList: []
 outDir: build
 miscInfo:
@@ -187,6 +194,8 @@ targets:
         - .cmsis/include
         - RTE/_lwIP
         - ../../Apps
+        - ../../Middlewares/lwip/lwip_app
+        - ../../Middlewares/lwip/lwip_app/token
       libList: []
     excludeList: []
     toolchain: AC5
