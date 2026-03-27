@@ -34,6 +34,7 @@
 #include "queue.h"
 #include "semphr.h"
 #include "timers.h"
+#include "./SYSTEM/sys/sys.h"
 
 /******************************************************************************************************/
 /*FreeRTOS配置*/
@@ -70,6 +71,12 @@ void ui_display_task(void *pvParameters);
 TaskHandle_t ActuatorTask_Handler;
 void actuator_ctrl_task(void *pvParameters);
 
+/* Task_IWDG_Feed 任务 配置 */
+#define IWDG_TASK_PRIO 2
+#define IWDG_STK_SIZE 128
+TaskHandle_t IWDGTask_Handler;
+void iwdg_feed_task(void *pvParameters);
+
 /* 应用内核对象 */
 static QueueHandle_t g_actuator_queue = NULL;
 static SemaphoreHandle_t g_sensor_period_sem = NULL;
@@ -77,8 +84,10 @@ static SemaphoreHandle_t g_app_data_mutex = NULL;
 static TimerHandle_t g_sensor_timer = NULL;
 
 static app_runtime_data_t g_app_data = {0};
+static IWDG_HandleTypeDef g_iwdg_handle;
 
 static void sensor_period_timer_cb(TimerHandle_t xTimer);
+static uint8_t iwdg_init_3s(void);
 /******************************************************************************************************/
 
 void app_data_set_sensor(float temperature, float humidity)
@@ -266,6 +275,16 @@ void start_task(void *pvParameters)
 	app_data_set_ip(g_lwipdev.ip[0], g_lwipdev.ip[1], g_lwipdev.ip[2], g_lwipdev.ip[3]);
 	app_data_set_mqtt_connected(0);
 
+	if (iwdg_init_3s() != 0)
+	{
+		printf("IWDG init failed.\r\n");
+		while (1)
+		{
+			LED1_TOGGLE();
+			vTaskDelay(pdMS_TO_TICKS(100));
+		}
+	}
+
 	xTimerStart(g_sensor_timer, 0);
 
 	taskENTER_CRITICAL(); /* 进入临界区 */
@@ -301,6 +320,14 @@ void start_task(void *pvParameters)
 				(void *)NULL,
 				(UBaseType_t)ACTUATOR_TASK_PRIO,
 				(TaskHandle_t *)&ActuatorTask_Handler);
+
+	/* 创建 Task_IWDG_Feed */
+	xTaskCreate((TaskFunction_t)iwdg_feed_task,
+				(const char *)"Task_IWDG_Feed",
+				(uint16_t)IWDG_STK_SIZE,
+				(void *)NULL,
+				(UBaseType_t)IWDG_TASK_PRIO,
+				(TaskHandle_t *)&IWDGTask_Handler);
 
 	taskEXIT_CRITICAL();			/* 退出临界区 */
 	vTaskDelete(StartTask_Handler); /* 删除开始任务 */
@@ -435,6 +462,24 @@ void actuator_ctrl_task(void *pvParameters)
 	}
 }
 
+void iwdg_feed_task(void *pvParameters)
+{
+	pvParameters = pvParameters;
+
+	while (1)
+	{
+		if (HAL_IWDG_Refresh(&g_iwdg_handle) != HAL_OK)
+		{
+			printf("IWDG refresh failed.\r\n");
+		}
+		else 
+		{
+			printf("IWDG fed.\r\n");
+		}
+		vTaskDelay(pdMS_TO_TICKS(1000));
+	}
+}
+
 static void sensor_period_timer_cb(TimerHandle_t xTimer)
 {
 	(void)xTimer;
@@ -442,4 +487,19 @@ static void sensor_period_timer_cb(TimerHandle_t xTimer)
 	{
 		xSemaphoreGive(g_sensor_period_sem);
 	}
+}
+
+static uint8_t iwdg_init_3s(void)
+{
+	/* LSI约32KHz: 超时时间约=(Reload+1)*Prescaler/LSI */
+	g_iwdg_handle.Instance = IWDG;
+	g_iwdg_handle.Init.Prescaler = IWDG_PRESCALER_64;
+	g_iwdg_handle.Init.Reload = 1499U; /* 约3秒 */
+
+	if (HAL_IWDG_Init(&g_iwdg_handle) != HAL_OK)
+	{
+		return 1;
+	}
+
+	return 0;
 }
