@@ -65,6 +65,58 @@ static char g_incoming_topic[128] = {0};
 static char g_incoming_payload[256] = {0};
 static u16_t g_incoming_offset = 0;
 
+typedef enum
+{
+	MQTT_SM_DNS_RESOLVE = 0,
+	MQTT_SM_CONNECT,
+	MQTT_SM_CONNECTING,
+	MQTT_SM_ONLINE,
+	MQTT_SM_BACKOFF
+} mqtt_sm_state_t;
+
+#define MQTT_RECONNECT_BACKOFF_MIN_MS 1000U
+#define MQTT_RECONNECT_BACKOFF_MAX_MS 60000U
+
+static volatile uint8_t g_mqtt_need_reconnect = 0;
+static volatile uint8_t g_mqtt_online = 0;
+static mqtt_sm_state_t g_mqtt_sm_state = MQTT_SM_DNS_RESOLVE;
+static uint32_t g_reconnect_backoff_ms = MQTT_RECONNECT_BACKOFF_MIN_MS;
+static TickType_t g_reconnect_deadline = 0;
+
+static void mqtt_release_resources(void)
+{
+	if (g_mqtt_client != NULL)
+	{
+		if (mqtt_client_is_connected(g_mqtt_client))
+		{
+			mqtt_disconnect(g_mqtt_client);
+		}
+
+		mqtt_client_free(g_mqtt_client);
+		g_mqtt_client = NULL;
+	}
+
+	g_publish_flag = 0;
+	g_mqtt_online = 0;
+	app_data_set_mqtt_connected(0);
+}
+
+static void mqtt_schedule_reconnect_backoff(void)
+{
+	g_reconnect_deadline = xTaskGetTickCount() + pdMS_TO_TICKS(g_reconnect_backoff_ms);
+
+	printf("[MQTT] reconnect in %lu ms\r\n", (unsigned long)g_reconnect_backoff_ms);
+
+	if (g_reconnect_backoff_ms < MQTT_RECONNECT_BACKOFF_MAX_MS)
+	{
+		g_reconnect_backoff_ms <<= 1;
+		if (g_reconnect_backoff_ms > MQTT_RECONNECT_BACKOFF_MAX_MS)
+		{
+			g_reconnect_backoff_ms = MQTT_RECONNECT_BACKOFF_MAX_MS;
+		}
+	}
+}
+
 /**
  * @brief       从字符串中提取角度值
  * @param       payload: 负载字符串
@@ -312,6 +364,9 @@ mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t st
 	if (status == MQTT_CONNECT_ACCEPTED)
 	{
 		app_data_set_mqtt_connected(1);
+		g_mqtt_online = 1;
+		g_mqtt_need_reconnect = 0;
+		g_reconnect_backoff_ms = MQTT_RECONNECT_BACKOFF_MIN_MS;
 		g_publish_flag = 0;
 
 		/* 判断是否连接 */
@@ -345,6 +400,9 @@ mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t st
 	else /* 连接失败 */
 	{
 		app_data_set_mqtt_connected(0);
+		g_mqtt_online = 0;
+		g_publish_flag = 0;
+		g_mqtt_need_reconnect = 1;
 		printf("mqtt_connection_cb: Disconnected, reason: %d\n", status);
 	}
 }
@@ -367,6 +425,7 @@ void lwip_demo(void)
 	char version[] = "2018-10-31";
 	unsigned int expiration_time = 1956499200;
 	char authorization_buf[256] = {0};
+	err_t mqtt_err;
 
 	/* 在静态IP模式下，优先使用本地网关(Windows ICS)作为DNS */
 	if (ip_addr_isany(dns_getserver(0)))
@@ -384,15 +443,6 @@ void lwip_demo(void)
 			   g_lwipdev.gateway[2],
 			   g_lwipdev.gateway[3]);
 	}
-
-	server = gethostbyname((char *)HOST_NAME); /* 对oneNET服务器地址解析 */
-	if (server == NULL)
-	{
-		printf("DNS resolve failed for %s\r\n", HOST_NAME);
-		lcd_show_string(5, 170, 210, 16, 16, "DNS resolve failed", RED);
-		return;
-	}
-	memcpy(&g_mqtt_ip, server->h_addr, server->h_length); /* 把解析好的地址存放在mqtt_ip变量当中 */
 
 	/* 把各个参数保存在g_onenet_info结构体的成员变量中 */
 	memset(g_onenet_info.pro_id, 0, sizeof(g_onenet_info.pro_id));
@@ -445,37 +495,118 @@ void lwip_demo(void)
 	mqtt_client_info.will_retain = 0;							 // 遗嘱消息的保留，
 	mqtt_client_info.will_topic = 0;							 // 遗嘱消息的主题，
 
-	/* 创建MQTT客户端控制块 */
-	g_mqtt_client = mqtt_client_new();
-	if (g_mqtt_client == NULL)
-	{
-		printf("mqtt_client_new failed\r\n");
-		return;
-	}
-
-	/* 连接服务器 */
-	if (mqtt_client_connect(g_mqtt_client,													/* 服务器控制块 */
-							&g_mqtt_ip, MQTT_PORT,											/* 服务器IP与端口号 */
-							mqtt_connection_cb, LWIP_CONST_CAST(void *, &mqtt_client_info), /* 设置服务器连接回调函数 */
-							&mqtt_client_info) != ERR_OK)									/* MQTT连接信息 */
-	{
-		app_data_set_mqtt_connected(0);
-		printf("mqtt_client_connect failed\r\n");
-		lcd_show_string(5, 210, 210, 16, 16, "mqtt connect failed", RED);
-		return;
-	}
+	g_mqtt_sm_state = MQTT_SM_DNS_RESOLVE;
+	g_mqtt_need_reconnect = 0;
+	g_mqtt_online = 0;
+	g_reconnect_backoff_ms = MQTT_RECONNECT_BACKOFF_MIN_MS;
 
 	while (1)
 	{
-		if ((g_publish_flag == 1) && mqtt_client_is_connected(g_mqtt_client))
+		switch (g_mqtt_sm_state)
 		{
-			app_runtime_data_t snapshot;
-			app_data_get_snapshot(&snapshot);
-			g_temp = snapshot.temperature;
-			g_humid = snapshot.humidity;
-			sprintf((char *)g_payload_out, "{\"id\":123,\"dp\":{\"temperature\":[{\"v\":%0.1f}],\"humidity\":[{\"v\":%0.1f}]}}", g_temp, g_humid);
-			g_payload_out_len = strlen((char *)g_payload_out);
-			mqtt_publish(g_mqtt_client, DEVICE_PUBLISH, g_payload_out, g_payload_out_len, 1, 0, mqtt_publish_request_cb, NULL);
+		case MQTT_SM_DNS_RESOLVE:
+			server = gethostbyname((char *)HOST_NAME);
+			if (server == NULL)
+			{
+				printf("DNS resolve failed for %s\r\n", HOST_NAME);
+				lcd_show_string(5, 170, 210, 16, 16, "DNS resolve failed", RED);
+				mqtt_release_resources();
+				mqtt_schedule_reconnect_backoff();
+				g_mqtt_sm_state = MQTT_SM_BACKOFF;
+				break;
+			}
+
+			memcpy(&g_mqtt_ip, server->h_addr, server->h_length);
+			g_mqtt_sm_state = MQTT_SM_CONNECT;
+			break;
+
+		case MQTT_SM_CONNECT:
+			mqtt_release_resources();
+
+			g_mqtt_client = mqtt_client_new();
+			if (g_mqtt_client == NULL)
+			{
+				printf("mqtt_client_new failed\r\n");
+				mqtt_schedule_reconnect_backoff();
+				g_mqtt_sm_state = MQTT_SM_BACKOFF;
+				break;
+			}
+
+			mqtt_err = mqtt_client_connect(g_mqtt_client,
+										   &g_mqtt_ip, MQTT_PORT,
+										   mqtt_connection_cb, LWIP_CONST_CAST(void *, &mqtt_client_info),
+										   &mqtt_client_info);
+
+			if (mqtt_err != ERR_OK)
+			{
+				printf("mqtt_client_connect failed, err=%d\r\n", (int)mqtt_err);
+				lcd_show_string(5, 210, 210, 16, 16, "mqtt connect failed", RED);
+				mqtt_release_resources();
+				mqtt_schedule_reconnect_backoff();
+				g_mqtt_sm_state = MQTT_SM_BACKOFF;
+				break;
+			}
+
+			g_mqtt_sm_state = MQTT_SM_CONNECTING;
+			break;
+
+		case MQTT_SM_CONNECTING:
+			if (g_lwipdev.link_status != LWIP_LINK_ON)
+			{
+				mqtt_release_resources();
+				mqtt_schedule_reconnect_backoff();
+				g_mqtt_need_reconnect = 0;
+				g_mqtt_sm_state = MQTT_SM_BACKOFF;
+			}
+			else if (g_mqtt_online)
+			{
+				g_mqtt_sm_state = MQTT_SM_ONLINE;
+			}
+			else if (g_mqtt_need_reconnect)
+			{
+				mqtt_release_resources();
+				mqtt_schedule_reconnect_backoff();
+				g_mqtt_need_reconnect = 0;
+				g_mqtt_sm_state = MQTT_SM_BACKOFF;
+			}
+			break;
+
+		case MQTT_SM_ONLINE:
+			if ((g_mqtt_need_reconnect != 0) ||
+				(g_lwipdev.link_status != LWIP_LINK_ON) ||
+				(g_mqtt_client == NULL) ||
+				(!mqtt_client_is_connected(g_mqtt_client)))
+			{
+				printf("[MQTT] TCP disconnected, prepare reconnect\r\n");
+				mqtt_release_resources();
+				mqtt_schedule_reconnect_backoff();
+				g_mqtt_need_reconnect = 0;
+				g_mqtt_sm_state = MQTT_SM_BACKOFF;
+				break;
+			}
+
+			if (g_publish_flag == 1)
+			{
+				app_runtime_data_t snapshot;
+				app_data_get_snapshot(&snapshot);
+				g_temp = snapshot.temperature;
+				g_humid = snapshot.humidity;
+				sprintf((char *)g_payload_out, "{\"id\":123,\"dp\":{\"temperature\":[{\"v\":%0.1f}],\"humidity\":[{\"v\":%0.1f}]}}", g_temp, g_humid);
+				g_payload_out_len = strlen((char *)g_payload_out);
+				mqtt_publish(g_mqtt_client, DEVICE_PUBLISH, g_payload_out, g_payload_out_len, 1, 0, mqtt_publish_request_cb, NULL);
+			}
+			break;
+
+		case MQTT_SM_BACKOFF:
+			if ((int32_t)(xTaskGetTickCount() - g_reconnect_deadline) >= 0)
+			{
+				g_mqtt_sm_state = MQTT_SM_DNS_RESOLVE;
+			}
+			break;
+
+		default:
+			g_mqtt_sm_state = MQTT_SM_DNS_RESOLVE;
+			break;
 		}
 
 		vTaskDelay(pdMS_TO_TICKS(1000));

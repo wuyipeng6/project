@@ -382,7 +382,7 @@ void ui_display_task(void *pvParameters)
 		sprintf((char *)buf, "T:%.2fC RH:%.2f%%", snapshot.temperature, snapshot.humidity);
 		lcd_show_string(5, 230, 220, 16, 16, (char *)buf, BLUE);
 
-		if (snapshot.mqtt_connected)
+		if (snapshot.mqtt_connected && (g_lwipdev.link_status == LWIP_LINK_ON))
 		{
 			lcd_show_string(5, 250, 220, 16, 16, "MQTT:CONNECTED   ", BLUE);
 		}
