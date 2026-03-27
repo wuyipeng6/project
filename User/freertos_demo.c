@@ -31,6 +31,9 @@
 #include "lwipopts.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
+#include "semphr.h"
+#include "timers.h"
 
 /******************************************************************************************************/
 /*FreeRTOS配置*/
@@ -43,38 +46,101 @@
 TaskHandle_t StartTask_Handler;		 /* 任务句柄 */
 void start_task(void *pvParameters); /* 任务函数 */
 
-/* LWIP_DEMO 任务 配置
- * 包括: 任务句柄 任务优先级 堆栈大小 创建任务
- */
-#define LWIP_DMEO_TASK_PRIO 11			 /* 任务优先级 */
-#define LWIP_DMEO_STK_SIZE 2048			 /* 任务堆栈大小 */
-TaskHandle_t LWIP_Task_Handler;			 /* 任务句柄 */
-void lwip_demo_task(void *pvParameters); /* 任务函数 */
+/* Task_MQTT_Client 任务 配置 */
+#define MQTT_TASK_PRIO 12
+#define MQTT_STK_SIZE 2048
+TaskHandle_t MQTTTask_Handler;
+void mqtt_client_task(void *pvParameters);
 
-/* LED_TASK 任务 配置
- * 包括: 任务句柄 任务优先级 堆栈大小 创建任务
- */
-#define LED_TASK_PRIO 9		   /* 任务优先级 */
-#define LED_STK_SIZE 128		   /* 任务堆栈大小 */
-TaskHandle_t LEDTask_Handler;	   /* 任务句柄 */
-void led_task(void *pvParameters); /* 任务函数 */
+/* Task_Sensor_Collect 任务 配置 */
+#define SENSOR_TASK_PRIO 10
+#define SENSOR_STK_SIZE 256
+TaskHandle_t SensorTask_Handler;
+void sensor_collect_task(void *pvParameters);
 
-/* SHT20_TASK 任务 配置
- * 包括: 任务句柄 任务优先级 堆栈大小 创建任务
- */
-#define SHT20_TASK_PRIO 9			 /* 任务优先级 */
-#define SHT20_STK_SIZE 256			 /* 任务堆栈大小 */
-TaskHandle_t SHT20Task_Handler;		 /* 任务句柄 */
-void sht20_task(void *pvParameters); /* 任务函数 */
+/* Task_UI_Display 任务 配置 */
+#define UI_TASK_PRIO 9
+#define UI_STK_SIZE 384
+TaskHandle_t UITask_Handler;
+void ui_display_task(void *pvParameters);
 
-/* SG90_TASK 任务 配置
- * 包括: 任务句柄 任务优先级 堆栈大小 创建任务
- */
-#define SG90_TASK_PRIO 8			/* 任务优先级 */
-#define SG90_STK_SIZE 256			/* 任务堆栈大小 */
-TaskHandle_t SG90Task_Handler;		/* 任务句柄 */
-void sg90_task(void *pvParameters); /* 任务函数 */
+/* Task_Actuator_Ctrl 任务 配置 */
+#define ACTUATOR_TASK_PRIO 11
+#define ACTUATOR_STK_SIZE 256
+TaskHandle_t ActuatorTask_Handler;
+void actuator_ctrl_task(void *pvParameters);
+
+/* 应用内核对象 */
+static QueueHandle_t g_actuator_queue = NULL;
+static SemaphoreHandle_t g_sensor_period_sem = NULL;
+static SemaphoreHandle_t g_app_data_mutex = NULL;
+static TimerHandle_t g_sensor_timer = NULL;
+
+static app_runtime_data_t g_app_data = {0};
+
+static void sensor_period_timer_cb(TimerHandle_t xTimer);
 /******************************************************************************************************/
+
+void app_data_set_sensor(float temperature, float humidity)
+{
+	if (g_app_data_mutex != NULL)
+	{
+		xSemaphoreTake(g_app_data_mutex, portMAX_DELAY);
+		g_app_data.temperature = temperature;
+		g_app_data.humidity = humidity;
+		xSemaphoreGive(g_app_data_mutex);
+	}
+}
+
+void app_data_set_ip(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t ip3)
+{
+	if (g_app_data_mutex != NULL)
+	{
+		xSemaphoreTake(g_app_data_mutex, portMAX_DELAY);
+		g_app_data.ip[0] = ip0;
+		g_app_data.ip[1] = ip1;
+		g_app_data.ip[2] = ip2;
+		g_app_data.ip[3] = ip3;
+		xSemaphoreGive(g_app_data_mutex);
+	}
+}
+
+void app_data_set_mqtt_connected(uint8_t connected)
+{
+	if (g_app_data_mutex != NULL)
+	{
+		xSemaphoreTake(g_app_data_mutex, portMAX_DELAY);
+		g_app_data.mqtt_connected = connected;
+		xSemaphoreGive(g_app_data_mutex);
+	}
+}
+
+void app_data_get_snapshot(app_runtime_data_t *out)
+{
+	if ((out == NULL) || (g_app_data_mutex == NULL))
+	{
+		return;
+	}
+
+	xSemaphoreTake(g_app_data_mutex, portMAX_DELAY);
+	*out = g_app_data;
+	xSemaphoreGive(g_app_data_mutex);
+}
+
+BaseType_t app_actuator_send_angle(uint16_t angle, TickType_t ticks_to_wait)
+{
+	if (g_actuator_queue == NULL)
+	{
+		return pdFAIL;
+	}
+
+	if (angle > 180U)
+	{
+		angle = 180U;
+	}
+
+	return xQueueSend(g_actuator_queue, &angle, ticks_to_wait);
+}
 
 /**
  * @breif       加载UI
@@ -181,39 +247,60 @@ void start_task(void *pvParameters)
 		lwip_test_ui(2); /* 加载后前部分UI */
 	}
 #endif
+
+	g_actuator_queue = xQueueCreate(8, sizeof(uint16_t));
+	g_sensor_period_sem = xSemaphoreCreateBinary();
+	g_app_data_mutex = xSemaphoreCreateMutex();
+	// 创建一个周期为1s的定时器，定时器回调函数中释放g_sensor_period_sem信号量，触发传感器数据采集
+	g_sensor_timer = xTimerCreate("sensor_tmr", pdMS_TO_TICKS(1000), pdTRUE, NULL, sensor_period_timer_cb);
+	if ((g_actuator_queue == NULL) || (g_sensor_period_sem == NULL) || (g_app_data_mutex == NULL) || (g_sensor_timer == NULL))
+	{
+		printf("APP RTOS objects create failed.\r\n");
+		while (1)
+		{
+			LED1_TOGGLE();
+			vTaskDelay(pdMS_TO_TICKS(200));
+		}
+	}
+
+	app_data_set_ip(g_lwipdev.ip[0], g_lwipdev.ip[1], g_lwipdev.ip[2], g_lwipdev.ip[3]);
+	app_data_set_mqtt_connected(0);
+
+	xTimerStart(g_sensor_timer, 0);
+
 	taskENTER_CRITICAL(); /* 进入临界区 */
 
-	/* 创建lwIP任务 */
-	xTaskCreate((TaskFunction_t)lwip_demo_task,
-				(const char *)"lwip_demo_task",
-				(uint16_t)LWIP_DMEO_STK_SIZE,
+	/* 创建 Task_MQTT_Client */
+	xTaskCreate((TaskFunction_t)mqtt_client_task,
+				(const char *)"Task_MQTT_Client",
+				(uint16_t)MQTT_STK_SIZE,
 				(void *)NULL,
-				(UBaseType_t)LWIP_DMEO_TASK_PRIO,
-				(TaskHandle_t *)&LWIP_Task_Handler);
+				(UBaseType_t)MQTT_TASK_PRIO,
+				(TaskHandle_t *)&MQTTTask_Handler);
 
-	/* LED测试任务 */
-	xTaskCreate((TaskFunction_t)led_task,
-				(const char *)"led_task",
-				(uint16_t)LED_STK_SIZE,
+	/* 创建 Task_Sensor_Collect */
+	xTaskCreate((TaskFunction_t)sensor_collect_task,
+				(const char *)"Task_Sensor_Collect",
+				(uint16_t)SENSOR_STK_SIZE,
 				(void *)NULL,
-				(UBaseType_t)LED_TASK_PRIO,
-				(TaskHandle_t *)&LEDTask_Handler);
+				(UBaseType_t)SENSOR_TASK_PRIO,
+				(TaskHandle_t *)&SensorTask_Handler);
 
-	// /* SHT20温湿度采集并串口发送任务 */
-	// xTaskCreate((TaskFunction_t)sht20_task,
-	// 			(const char *)"sht20_task",
-	// 			(uint16_t)SHT20_STK_SIZE,
-	// 			(void *)NULL,
-	// 			(UBaseType_t)SHT20_TASK_PRIO,
-	// 			(TaskHandle_t *)&SHT20Task_Handler);
+	/* 创建 Task_UI_Display */
+	xTaskCreate((TaskFunction_t)ui_display_task,
+				(const char *)"Task_UI_Display",
+				(uint16_t)UI_STK_SIZE,
+				(void *)NULL,
+				(UBaseType_t)UI_TASK_PRIO,
+				(TaskHandle_t *)&UITask_Handler);
 
-	// /* SG90任务：每秒移动45° */
-	// xTaskCreate((TaskFunction_t)sg90_task,
-	// 			(const char *)"sg90_task",
-	// 			(uint16_t)SG90_STK_SIZE,
-	// 			(void *)NULL,
-	// 			(UBaseType_t)SG90_TASK_PRIO,
-	// 			(TaskHandle_t *)&SG90Task_Handler);
+	/* 创建 Task_Actuator_Ctrl */
+	xTaskCreate((TaskFunction_t)actuator_ctrl_task,
+				(const char *)"Task_Actuator_Ctrl",
+				(uint16_t)ACTUATOR_STK_SIZE,
+				(void *)NULL,
+				(UBaseType_t)ACTUATOR_TASK_PRIO,
+				(TaskHandle_t *)&ActuatorTask_Handler);
 
 	taskEXIT_CRITICAL();			/* 退出临界区 */
 	vTaskDelete(StartTask_Handler); /* 删除开始任务 */
@@ -224,40 +311,24 @@ void start_task(void *pvParameters)
  * @param       pvParameters : 传入参数(未用到)
  * @retval      无
  */
-void lwip_demo_task(void *pvParameters)
-{
-    pvParameters = pvParameters;
-    
-    lwip_demo();
-    
-    while (1)
-    {
-        vTaskDelay(5);
-    }
-}
-
-/**
- * @brief       系统再运行
- * @param       pvParameters : 传入参数(未用到)
- * @retval      无
- */
-void led_task(void *pvParameters)
+void mqtt_client_task(void *pvParameters)
 {
 	pvParameters = pvParameters;
 
+	lwip_demo();
+
 	while (1)
 	{
-		LED1_TOGGLE();
-		vTaskDelay(1000);
+		vTaskDelay(5);
 	}
 }
 
 /**
- * @brief       SHT20采集任务（读取温湿度并通过串口输出）
+ * @brief       Task_Sensor_Collect
  * @param       pvParameters : 传入参数(未用到)
  * @retval      无
  */
-void sht20_task(void *pvParameters)
+void sensor_collect_task(void *pvParameters)
 {
 	float temperature;
 	float humidity;
@@ -274,28 +345,64 @@ void sht20_task(void *pvParameters)
 
 	while (1)
 	{
+		xSemaphoreTake(g_sensor_period_sem, portMAX_DELAY);
+
 		if (sht2x_basic_read(&temperature, &humidity) == 0)
 		{
+			app_data_set_sensor(temperature, humidity);
 			printf("SHT20 T=%.2fC RH=%.2f%%\r\n", temperature, humidity);
 		}
 		else
 		{
 			printf("SHT20 read failed.\r\n");
 		}
-
-		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
 }
 
 /**
- * @brief       SG90任务（每秒45°步进）
+ * @brief       Task_UI_Display
  * @param       pvParameters : 传入参数(未用到)
  * @retval      无
  */
-void sg90_task(void *pvParameters)
+void ui_display_task(void *pvParameters)
 {
-	float angle = 0.0f;
-	int8_t dir = 1;
+	app_runtime_data_t snapshot;
+	uint8_t buf[48];
+
+	pvParameters = pvParameters;
+	lcd_fill(5, 210, lcddev.width, lcddev.height, WHITE);
+
+	while (1)
+	{
+		app_data_get_snapshot(&snapshot);
+
+		sprintf((char *)buf, "IP:%d.%d.%d.%d", snapshot.ip[0], snapshot.ip[1], snapshot.ip[2], snapshot.ip[3]);
+		lcd_show_string(5, 210, 220, 16, 16, (char *)buf, BLUE);
+
+		sprintf((char *)buf, "T:%.2fC RH:%.2f%%", snapshot.temperature, snapshot.humidity);
+		lcd_show_string(5, 230, 220, 16, 16, (char *)buf, BLUE);
+
+		if (snapshot.mqtt_connected)
+		{
+			lcd_show_string(5, 250, 220, 16, 16, "MQTT:CONNECTED   ", BLUE);
+		}
+		else
+		{
+			lcd_show_string(5, 250, 220, 16, 16, "MQTT:DISCONNECTED", RED);
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(300));
+	}
+}
+
+/**
+ * @brief       Task_Actuator_Ctrl
+ * @param       pvParameters : 传入参数(未用到)
+ * @retval      无
+ */
+void actuator_ctrl_task(void *pvParameters)
+{
+	uint16_t angle = 0;
 
 	pvParameters = pvParameters;
 
@@ -312,24 +419,27 @@ void sg90_task(void *pvParameters)
 		vTaskDelete(NULL);
 	}
 
-	sg90_set_angle(angle);
+	sg90_set_angle(0.0f);
 
 	while (1)
 	{
-		vTaskDelay(pdMS_TO_TICKS(1000));
-
-		angle += (float)(45 * dir);
-		if (angle >= 180.0f)
+		if (xQueueReceive(g_actuator_queue, &angle, portMAX_DELAY) == pdTRUE)
 		{
-			angle = 180.0f;
-			dir = -1;
+			if (angle > 180U)
+			{
+				angle = 180U;
+			}
+			sg90_set_angle((float)angle);
+			printf("[SG90] set angle=%d\r\n", angle);
 		}
-		else if (angle <= 0.0f)
-		{
-			angle = 0.0f;
-			dir = 1;
-		}
+	}
+}
 
-		sg90_set_angle(angle);
+static void sensor_period_timer_cb(TimerHandle_t xTimer)
+{
+	(void)xTimer;
+	if (g_sensor_period_sem != NULL)
+	{
+		xSemaphoreGive(g_sensor_period_sem);
 	}
 }

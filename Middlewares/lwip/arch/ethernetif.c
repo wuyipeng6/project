@@ -64,7 +64,7 @@
 /* 定义一个信号量 */
 xSemaphoreHandle g_rx_semaphore = NULL;
 #define NETIF_IN_TASK_STACK_SIZE (1024)
-#define NETIF_IN_TASK_PRIORITY (2)
+#define NETIF_IN_TASK_PRIORITY (14)
 
 /* Define those to better describe your network interface. */
 #define IFNAME0 'e'

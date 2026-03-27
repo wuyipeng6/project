@@ -29,6 +29,7 @@
 #include "./BSP/LCD/lcd.h"
 #include "lwip_comm.h"
 #include "lwip_demo.h"
+#include "freertos_demo.h"
 #include "token.h"
 #include "string.h"
 #include <stdlib.h>
@@ -65,82 +66,75 @@ static char g_incoming_payload[256] = {0};
 static u16_t g_incoming_offset = 0;
 
 /**
- * @brief       SG90开关控制接口(在其他文件中实现)
- * @param       on_off: 1=开启舵机, 0=关闭舵机
- */
-extern void sg90_onoff_ctrl(uint8_t on_off);
-
-/**
- * @brief       从字符串中提取开关值
+ * @brief       从字符串中提取角度值
  * @param       payload: 负载字符串
- * @return      1=开启, 0=关闭, -1=未识别
+ * @return      0~180=有效角度, -1=未识别
  */
-static int mqtt_extract_onoff(const char *payload)
+static int mqtt_extract_angle(const char *payload)
 {
 	const char *p;
+	char *endptr;
+	long value;
 
 	if (payload == NULL || strlen(payload) == 0)
 	{
 		return -1;
 	}
 
-	/* 情况1: 优先查找 "SG90" 字段的值（支持 {"SG90": 1} 格式） */
-	p = strstr(payload, "SG90");
+	/* 情况1: 查找 angle 字段，支持 {"angle":90} */
+	p = strstr(payload, "angle");
 	if (p != NULL)
 	{
-		/* 在SG90后面查找冒号 */
+		/* 在angle后面查找冒号 */
 		while (*p && *p != ':')
 			p++;
 		if (*p == ':')
 		{
 			p++; /* 跳过冒号 */
-			/* 跳过空格 */
-			while (*p == ' ' || *p == '\t')
+			while (*p == ' ' || *p == '\t' || *p == '"')
 				p++;
-			/* 提取数值 */
-			if (*p == '1')
-				return 1;
-			if (*p == '0')
-				return 0;
+
+			value = strtol(p, &endptr, 10);
+			if ((endptr != p) && (value >= 0) && (value <= 180))
+			{
+				return (int)value;
+			}
 		}
 	}
 
-	/* 情况2: JSON中包含 ":1" 或 ":0" */
-	p = strstr(payload, ":1");
+	/* 情况2: 查找 SG90 字段，支持 {"SG90":90} */
+	p = strstr(payload, "SG90");
 	if (p != NULL)
 	{
-		char next_char = *(p + 2);
-		/* 确保后面是结束符、逗号、空格或大括号，避免误匹配 :10, :12等 */
-		if (next_char == '\0' || next_char == '}' || next_char == ',' ||
-			next_char == ' ' || next_char == '\t' || next_char == '\r' || next_char == '\n')
+		while (*p && *p != ':')
+			p++;
+		if (*p == ':')
 		{
-			return 1;
+			p++;
+			while (*p == ' ' || *p == '\t' || *p == '"')
+				p++;
+
+			value = strtol(p, &endptr, 10);
+			if ((endptr != p) && (value >= 0) && (value <= 180))
+			{
+				return (int)value;
+			}
 		}
 	}
 
-	p = strstr(payload, ":0");
-	if (p != NULL)
-	{
-		char next_char = *(p + 2);
-		/* 确保后面是结束符、逗号、空格或大括号，避免误匹配 :01, :02等 */
-		if (next_char == '\0' || next_char == '}' || next_char == ',' ||
-			next_char == ' ' || next_char == '\t' || next_char == '\r' || next_char == '\n')
-		{
-			return 0;
-		}
-	}
-
-	/* 情况3: 纯数字（跳过前导空格、引号和大括号） */
+	/* 情况3: 纯数字 */
 	p = payload;
 	while (*p && ((*p == ' ') || (*p == '\t') || (*p == '\r') || (*p == '\n') ||
 				  (*p == '"') || (*p == '{')))
 	{
 		p++;
 	}
-	if (*p == '1')
-		return 1;
-	if (*p == '0')
-		return 0;
+
+	value = strtol(p, &endptr, 10);
+	if ((endptr != p) && (value >= 0) && (value <= 180))
+	{
+		return (int)value;
+	}
 
 	return -1;
 }
@@ -152,20 +146,26 @@ static int mqtt_extract_onoff(const char *payload)
  */
 static void mqtt_dispatch_sg90_cmd(const char *topic, const char *payload)
 {
-	int onoff;
+	int angle;
 
 	printf("[MQTT CMD] topic=%s\r\n", topic);
 	printf("[MQTT CMD] payload=%s\r\n", payload);
 
-	onoff = mqtt_extract_onoff(payload);
-	if (onoff >= 0)
+	angle = mqtt_extract_angle(payload);
+	if (angle >= 0)
 	{
-		// sg90_onoff_ctrl((uint8_t)onoff);
-		printf("[SG90] onoff=%d\r\n", onoff);
+		if (app_actuator_send_angle((uint16_t)angle, pdMS_TO_TICKS(10)) == pdPASS)
+		{
+			printf("[SG90] enqueue angle=%d\r\n", angle);
+		}
+		else
+		{
+			printf("[SG90] enqueue failed\r\n");
+		}
 		return;
 	}
 
-	printf("[SG90] invalid command, expect 1 or 0\r\n");
+	printf("[SG90] invalid command, expect angle 0~180\r\n");
 }
 
 /**
@@ -311,6 +311,9 @@ mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t st
 	/* 判断是否连接 */
 	if (status == MQTT_CONNECT_ACCEPTED)
 	{
+		app_data_set_mqtt_connected(1);
+		g_publish_flag = 0;
+
 		/* 判断是否连接 */
 		if (mqtt_client_is_connected(client))
 		{
@@ -341,6 +344,7 @@ mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t st
 	}
 	else /* 连接失败 */
 	{
+		app_data_set_mqtt_connected(0);
 		printf("mqtt_connection_cb: Disconnected, reason: %d\n", status);
 	}
 }
@@ -455,6 +459,7 @@ void lwip_demo(void)
 							mqtt_connection_cb, LWIP_CONST_CAST(void *, &mqtt_client_info), /* 设置服务器连接回调函数 */
 							&mqtt_client_info) != ERR_OK)									/* MQTT连接信息 */
 	{
+		app_data_set_mqtt_connected(0);
 		printf("mqtt_client_connect failed\r\n");
 		lcd_show_string(5, 210, 210, 16, 16, "mqtt connect failed", RED);
 		return;
@@ -464,13 +469,15 @@ void lwip_demo(void)
 	{
 		if ((g_publish_flag == 1) && mqtt_client_is_connected(g_mqtt_client))
 		{
-			g_temp = 30 + rand() % 10 + 1;	  /* 温度的数据 */
-			g_humid = 54.8 + rand() % 10 + 1; /* 湿度的数据 */
+			app_runtime_data_t snapshot;
+			app_data_get_snapshot(&snapshot);
+			g_temp = snapshot.temperature;
+			g_humid = snapshot.humidity;
 			sprintf((char *)g_payload_out, "{\"id\":123,\"dp\":{\"temperature\":[{\"v\":%0.1f}],\"humidity\":[{\"v\":%0.1f}]}}", g_temp, g_humid);
 			g_payload_out_len = strlen((char *)g_payload_out);
 			mqtt_publish(g_mqtt_client, DEVICE_PUBLISH, g_payload_out, g_payload_out_len, 1, 0, mqtt_publish_request_cb, NULL);
 		}
 
-		vTaskDelay(10000);
+		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
 }

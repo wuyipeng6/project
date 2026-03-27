@@ -21,7 +21,27 @@
 #ifndef __FREERTOS_DEMO_H
 #define __FREERTOS_DEMO_H
 
+#include "FreeRTOS.h"
+#include "task.h"
+
+typedef struct
+{
+	float temperature;
+	float humidity;
+	uint8_t ip[4];
+	uint8_t mqtt_connected;
+} app_runtime_data_t;
+
 
 void freertos_demo(void);   /* 创建lwIP的任务函数 */
+
+/* 应用运行态数据读写接口（内部已做线程保护） */
+void app_data_set_sensor(float temperature, float humidity);
+void app_data_set_ip(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t ip3);
+void app_data_set_mqtt_connected(uint8_t connected);
+void app_data_get_snapshot(app_runtime_data_t *out);
+
+/* 执行器命令接口（角度: 0~180） */
+BaseType_t app_actuator_send_angle(uint16_t angle, TickType_t ticks_to_wait);
 
 #endif
