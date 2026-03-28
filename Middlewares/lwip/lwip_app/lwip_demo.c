@@ -33,6 +33,7 @@
 #include "token.h"
 #include "string.h"
 #include <stdlib.h>
+#include "cJSON.h"
 
 /* oneNET参考文章：https://open.iot.10086.cn/doc/v5/develop/detail/251 */
 
@@ -83,6 +84,9 @@ static mqtt_sm_state_t g_mqtt_sm_state = MQTT_SM_DNS_RESOLVE;
 static uint32_t g_reconnect_backoff_ms = MQTT_RECONNECT_BACKOFF_MIN_MS;
 static TickType_t g_reconnect_deadline = 0;
 
+/* 前向声明：该回调在文件后部定义，但在前面已被传给mqtt_publish() */
+static void mqtt_publish_request_cb(void *arg, err_t err);
+
 static void mqtt_release_resources(void)
 {
 	if (g_mqtt_client != NULL)
@@ -118,91 +122,215 @@ static void mqtt_schedule_reconnect_backoff(void)
 }
 
 /**
- * @brief       从字符串中提取角度值
- * @param       payload: 负载字符串
- * @return      0~180=有效角度, -1=未识别
+ * @brief       使用cJSON构建OneNET格式的数据上报JSON并发布
+ * @param       client: MQTT客户端指针
+ * @param       temp: 温度值
+ * @param       humid: 湿度值
+ * @return      0=成功, -1=失败
+ * @note        自动释放cJSON对象和生成的字符串内存
  */
-static int mqtt_extract_angle(const char *payload)
+static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, float humid)
 {
-	const char *p;
-	char *endptr;
-	long value;
+	cJSON *root = NULL;
+	cJSON *dp = NULL;
+	cJSON *temp_array = NULL;
+	cJSON *temp_obj = NULL;
+	cJSON *humid_array = NULL;
+	cJSON *humid_obj = NULL;
+	char *json_str = NULL;
+	int ret = -1;
+
+	if (client == NULL)
+	{
+		printf("[cJSON] MQTT client is NULL\r\n");
+		return -1;
+	}
+
+	/* 创建根对象 */
+	root = cJSON_CreateObject();
+	if (root == NULL)
+	{
+		printf("[cJSON] Failed to create root object\r\n");
+		return -1;
+	}
+
+	/* 添加ID */
+	cJSON_AddNumberToObject(root, "id", 123);
+
+	/* 创建"dp"（数据点）对象 */
+	dp = cJSON_AddObjectToObject(root, "dp");
+	if (dp == NULL)
+	{
+		printf("[cJSON] Failed to create dp object\r\n");
+		cJSON_Delete(root);
+		return -1;
+	}
+
+	/* 创建温度数组 */
+	temp_array = cJSON_AddArrayToObject(dp, "temperature");
+	if (temp_array == NULL)
+	{
+		printf("[cJSON] Failed to create temperature array\r\n");
+		cJSON_Delete(root);
+		return -1;
+	}
+
+	/* 为温度数组添加对象 */
+	temp_obj = cJSON_CreateObject();
+	if (temp_obj == NULL)
+	{
+		printf("[cJSON] Failed to create temperature object\r\n");
+		cJSON_Delete(root);
+		return -1;
+	}
+	cJSON_AddNumberToObject(temp_obj, "v", temp);
+	cJSON_AddItemToArray(temp_array, temp_obj);
+
+	/* 创建湿度数组 */
+	humid_array = cJSON_AddArrayToObject(dp, "humidity");
+	if (humid_array == NULL)
+	{
+		printf("[cJSON] Failed to create humidity array\r\n");
+		cJSON_Delete(root);
+		return -1;
+	}
+
+	/* 为湿度数组添加对象 */
+	humid_obj = cJSON_CreateObject();
+	if (humid_obj == NULL)
+	{
+		printf("[cJSON] Failed to create humidity object\r\n");
+		cJSON_Delete(root);
+		return -1;
+	}
+	cJSON_AddNumberToObject(humid_obj, "v", humid);
+	cJSON_AddItemToArray(humid_array, humid_obj);
+
+	/* 生成紧凑型JSON字符串 */
+	json_str = cJSON_PrintUnformatted(root);
+	if (json_str == NULL)
+	{
+		printf("[cJSON] Failed to print JSON\r\n");
+		cJSON_Delete(root);
+		return -1;
+	}
+
+	/* 检查JSON字符串长度是否超过缓冲区 */
+	int json_len = strlen(json_str);
+	if (json_len > (int)sizeof(g_payload_out) - 1)
+	{
+		printf("[cJSON] JSON string too long: %d > %u\r\n", json_len, (unsigned int)sizeof(g_payload_out) - 1);
+		cJSON_free(json_str);
+		cJSON_Delete(root);
+		return -1;
+	}
+
+	/* 复制到全局缓冲区 */
+	strcpy((char *)g_payload_out, json_str);
+	g_payload_out_len = json_len;
+
+	printf("[cJSON] Generated sensor data JSON: %s\r\n", g_payload_out);
+
+	/* 发布MQTT消息 */
+	err_t err = mqtt_publish(client, DEVICE_PUBLISH, g_payload_out, g_payload_out_len, 1, 0, mqtt_publish_request_cb, NULL);
+	if (err == ERR_OK)
+	{
+		ret = 0;
+		printf("[cJSON] Publish success\r\n");
+	}
+	else
+	{
+		printf("[cJSON] Publish failed: %d\r\n", err);
+		ret = -1;
+	}
+
+	/* 释放内存：首先释放JSON生成的字符串，然后释放cJSON对象 */
+	cJSON_free(json_str);
+	cJSON_Delete(root);
+
+	return ret;
+}
+
+/**
+ * @brief       使用cJSON解析下行命令中的角度值
+ * @param       payload: 负载字符串（JSON格式）
+ * @return      0~180=有效角度, -1=未识别
+ * @note        支持格式: {"SG90": 90}, {"angle": 90}, {"dp": {"SG90": 90}} 等多种JSON格式
+ *              自动检查类型和范围，并在完成后释放cJSON对象内存
+ */
+static int mqtt_extract_angle_cJSON(const char *payload)
+{
+	cJSON *json_root = NULL;
+	cJSON *json_item = NULL;
+	double angle_value = -1;
 
 	if (payload == NULL || strlen(payload) == 0)
 	{
 		return -1;
 	}
 
-	/* 情况1: 查找 angle 字段，支持 {"angle":90} 或 {"angle": 90} 或 {"angle":  90} 等多空格情况 */
-	p = strstr(payload, "angle");
-	if (p != NULL)
+	/* 尝试解析JSON */
+	json_root = cJSON_Parse(payload);
+	if (json_root == NULL)
 	{
-		/* 在angle后面查找冒号 */
-		while (*p && *p != ':')
-			p++;
-		if (*p == ':')
-		{
-			p++; /* 跳过冒号 */
-			/* 跳过所有空格和制表符 */
-			while (*p && (*p == ' ' || *p == '\t'))
-				p++;
-			/* 跳过可能的双引号 */
-			while (*p == '"')
-				p++;
+		printf("[cJSON] Failed to parse JSON, invalid format\r\n");
+		return -1;
+	}
 
-			value = strtol(p, &endptr, 10);
-			if ((endptr != p) && (value >= 0) && (value <= 180))
+	/* 尝试方案1: 查找 "SG90" 字段 */
+	json_item = cJSON_GetObjectItem(json_root, "SG90");
+	if (json_item != NULL && cJSON_IsNumber(json_item))
+	{
+		angle_value = json_item->valuedouble;
+		if (angle_value >= 0 && angle_value <= 180)
+		{
+			printf("[cJSON] Found SG90 field: %.0f\r\n", angle_value);
+			cJSON_Delete(json_root);
+			return (int)angle_value;
+		}
+	}
+
+	/* 尝试方案2: 查找 "angle" 字段 */
+	json_item = cJSON_GetObjectItem(json_root, "angle");
+	if (json_item != NULL && cJSON_IsNumber(json_item))
+	{
+		angle_value = json_item->valuedouble;
+		if (angle_value >= 0 && angle_value <= 180)
+		{
+			printf("[cJSON] Found angle field: %.0f\r\n", angle_value);
+			cJSON_Delete(json_root);
+			return (int)angle_value;
+		}
+	}
+
+	/* 尝试方案3: 查找 "dp" 嵌套结构中的 "SG90" */
+	json_item = cJSON_GetObjectItem(json_root, "dp");
+	if (json_item != NULL && cJSON_IsObject(json_item))
+	{
+		cJSON *sg90_item = cJSON_GetObjectItem(json_item, "SG90");
+		if (sg90_item != NULL && cJSON_IsNumber(sg90_item))
+		{
+			angle_value = sg90_item->valuedouble;
+			if (angle_value >= 0 && angle_value <= 180)
 			{
-				return (int)value;
+				printf("[cJSON] Found dp.SG90 field: %.0f\r\n", angle_value);
+				cJSON_Delete(json_root);
+				return (int)angle_value;
 			}
 		}
 	}
 
-	/* 情况2: 查找 SG90 字段，支持 {"SG90":90} 或 {"SG90": 90} 或 {"SG90":  90} 等多空格情况 */
-	p = strstr(payload, "SG90");
-	if (p != NULL)
-	{
-		while (*p && *p != ':')
-			p++;
-		if (*p == ':')
-		{
-			p++; /* 跳过冒号 */
-			/* 跳过所有空格和制表符 */
-			while (*p && (*p == ' ' || *p == '\t'))
-				p++;
-			/* 跳过可能的双引号 */
-			while (*p == '"')
-				p++;
-
-			value = strtol(p, &endptr, 10);
-			if ((endptr != p) && (value >= 0) && (value <= 180))
-			{
-				return (int)value;
-			}
-		}
-	}
-
-	/* 情况3: 纯数字 */
-	p = payload;
-	while (*p && ((*p == ' ') || (*p == '\t') || (*p == '\r') || (*p == '\n') ||
-				  (*p == '"') || (*p == '{')))
-	{
-		p++;
-	}
-
-	value = strtol(p, &endptr, 10);
-	if ((endptr != p) && (value >= 0) && (value <= 180))
-	{
-		return (int)value;
-	}
-
+	/* 解析失败或数值无效 */
+	printf("[cJSON] No valid SG90/angle field found or value out of range\r\n");
+	cJSON_Delete(json_root);
 	return -1;
 }
 
 /**
- * @brief       解析下行命令并分发到SG90开关控制接口
+ * @brief       解析下行命令并分发到SG90舵机控制接口（使用cJSON）
  * @param       topic: MQTT主题
- * @param       payload: 负载字符串
+ * @param       payload: 负载字符串（JSON格式）
+ * @note        使用cJSON解析，支持多种JSON格式，具备类型检查
  */
 static void mqtt_dispatch_sg90_cmd(const char *topic, const char *payload)
 {
@@ -211,7 +339,9 @@ static void mqtt_dispatch_sg90_cmd(const char *topic, const char *payload)
 	printf("[MQTT CMD] topic=%s\r\n", topic);
 	printf("[MQTT CMD] payload=%s\r\n", payload);
 
-	angle = mqtt_extract_angle(payload);
+	/* 使用cJSON解析角度值 */
+	angle = mqtt_extract_angle_cJSON(payload);
+
 	if (angle >= 0)
 	{
 		if (app_actuator_send_angle((uint16_t)angle, pdMS_TO_TICKS(10)) == pdPASS)
@@ -599,9 +729,16 @@ void lwip_demo(void)
 				app_data_get_snapshot(&snapshot);
 				g_temp = snapshot.temperature;
 				g_humid = snapshot.humidity;
-				sprintf((char *)g_payload_out, "{\"id\":123,\"dp\":{\"temperature\":[{\"v\":%0.1f}],\"humidity\":[{\"v\":%0.1f}]}}", g_temp, g_humid);
-				g_payload_out_len = strlen((char *)g_payload_out);
-				mqtt_publish(g_mqtt_client, DEVICE_PUBLISH, g_payload_out, g_payload_out_len, 1, 0, mqtt_publish_request_cb, NULL);
+
+				/* 使用cJSON构建JSON数据并发布 */
+				if (mqtt_publish_sensor_data_cJSON(g_mqtt_client, g_temp, g_humid) == 0)
+				{
+					printf("[MQTT] Sensor data published successfully\r\n");
+				}
+				else
+				{
+					printf("[MQTT] Sensor data publish failed\r\n");
+				}
 			}
 			break;
 

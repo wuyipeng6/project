@@ -28,6 +28,7 @@
 #include "./BSP/SRAM/sram.h"
 #include "./MALLOC/malloc.h"
 #include "freertos_demo.h"
+#include "cJSON.h"
 
 int main(void)
 {
@@ -44,6 +45,9 @@ int main(void)
 	my_mem_init(SRAMIN);  /* 初始化内部SRAM内存池 */
 	my_mem_init(SRAMEX);  /* 初始化外部SRAM内存池 */
 	my_mem_init(SRAMCCM); /* 初始化内部CCM内存池 */
+
+	/* 初始化cJSON内存钩子，使用自定义的malloc/free */
+	cJSON_Init_Custom();
 
 	freertos_demo(); /* 创建lwIP的任务函数 */
 }

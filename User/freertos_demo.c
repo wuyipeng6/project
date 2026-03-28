@@ -472,7 +472,7 @@ void iwdg_feed_task(void *pvParameters)
 		{
 			printf("IWDG refresh failed.\r\n");
 		}
-		else 
+		else
 		{
 			printf("IWDG fed.\r\n");
 		}
