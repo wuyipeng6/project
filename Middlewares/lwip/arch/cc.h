@@ -2,7 +2,7 @@
 #define __CC_H__
 
 #include "stdio.h"
- 
+
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_hal_conf.h"
 
@@ -15,7 +15,7 @@ typedef signed short s16_t;
 typedef unsigned long u32_t;
 typedef signed long s32_t;
 typedef u32_t mem_ptr_t;
-//typedef int sys_prot_t;
+// typedef int sys_prot_t;
 
 #define U16_F "hu"
 #define S16_F "d"
@@ -29,28 +29,28 @@ typedef u32_t mem_ptr_t;
 #define BYTE_ORDER LITTLE_ENDIAN
 
 /* define compiler specific symbols */
-#if defined (__ICCARM__)
+#if defined(__ICCARM__)
 #define PACK_STRUCT_BEGIN
 #define PACK_STRUCT_STRUCT
 #define PACK_STRUCT_END
 #define PACK_STRUCT_FIELD(x) x
 #define PACK_STRUCT_USE_INCLUDES
 
-#elif defined (__CC_ARM)
+#elif defined(__CC_ARM)
 
 #define PACK_STRUCT_BEGIN __packed
 #define PACK_STRUCT_STRUCT
 #define PACK_STRUCT_END
 #define PACK_STRUCT_FIELD(x) x
 
-#elif defined (__GNUC__)
+#elif defined(__GNUC__)
 
 #define PACK_STRUCT_BEGIN
-#define PACK_STRUCT_STRUCT __attribute__ ((__packed__))
+#define PACK_STRUCT_STRUCT __attribute__((__packed__))
 #define PACK_STRUCT_END
 #define PACK_STRUCT_FIELD(x) x
- 
-#elif defined (__TASKING__)
+
+#elif defined(__TASKING__)
 
 #define PACK_STRUCT_BEGIN
 #define PACK_STRUCT_STRUCT
@@ -59,11 +59,19 @@ typedef u32_t mem_ptr_t;
 
 #endif
 
+#define LWIP_PLATFORM_ASSERT(x) \
+	do                          \
+	{                           \
+		printf(x);              \
+	} while (0)
 
-#define LWIP_PLATFORM_ASSERT(x) do {printf(x);}while(0)
+/*
+ * lwIP 堆与内存池统一放入外部SRAM专用段。
+ * 实际起始地址由 scatter 文件中的 RW_LWIP_EXT 自动分配，避免手工地址重叠。
+ */
+#define LWIP_DECLARE_MEMORY_ALIGNED(variable_name, size) \
+	u8_t variable_name[LWIP_MEM_ALIGN_BUFFER(size)] __attribute__((section(".lwip_extsram"), aligned(4)))
 
- 
 extern u32_t sys_now(void);
 
 #endif /* __CC_H__ */
-

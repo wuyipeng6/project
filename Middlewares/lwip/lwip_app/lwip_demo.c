@@ -133,7 +133,7 @@ static int mqtt_extract_angle(const char *payload)
 		return -1;
 	}
 
-	/* 情况1: 查找 angle 字段，支持 {"angle":90} */
+	/* 情况1: 查找 angle 字段，支持 {"angle":90} 或 {"angle": 90} 或 {"angle":  90} 等多空格情况 */
 	p = strstr(payload, "angle");
 	if (p != NULL)
 	{
@@ -143,7 +143,11 @@ static int mqtt_extract_angle(const char *payload)
 		if (*p == ':')
 		{
 			p++; /* 跳过冒号 */
-			while (*p == ' ' || *p == '\t' || *p == '"')
+			/* 跳过所有空格和制表符 */
+			while (*p && (*p == ' ' || *p == '\t'))
+				p++;
+			/* 跳过可能的双引号 */
+			while (*p == '"')
 				p++;
 
 			value = strtol(p, &endptr, 10);
@@ -154,7 +158,7 @@ static int mqtt_extract_angle(const char *payload)
 		}
 	}
 
-	/* 情况2: 查找 SG90 字段，支持 {"SG90":90} */
+	/* 情况2: 查找 SG90 字段，支持 {"SG90":90} 或 {"SG90": 90} 或 {"SG90":  90} 等多空格情况 */
 	p = strstr(payload, "SG90");
 	if (p != NULL)
 	{
@@ -162,8 +166,12 @@ static int mqtt_extract_angle(const char *payload)
 			p++;
 		if (*p == ':')
 		{
-			p++;
-			while (*p == ' ' || *p == '\t' || *p == '"')
+			p++; /* 跳过冒号 */
+			/* 跳过所有空格和制表符 */
+			while (*p && (*p == ' ' || *p == '\t'))
+				p++;
+			/* 跳过可能的双引号 */
+			while (*p == '"')
 				p++;
 
 			value = strtol(p, &endptr, 10);

@@ -228,7 +228,7 @@ targets:
             ro-base: "0x08000000"
             rw-base: "0x20000000"
             xo-base: ""
-        scatterFilePath: ""
+        scatterFilePath: ./atk_f407_lwip_extsram.sct
         storageLayout:
           RAM:
             - id: 1
@@ -302,7 +302,7 @@ targets:
                 size: "0x0"
                 startAddr: "0x0"
               tag: IROM
-        useCustomScatterFile: false
+        useCustomScatterFile: true
     uploadConfigMap:
       JLink:
         baseAddr: ""
