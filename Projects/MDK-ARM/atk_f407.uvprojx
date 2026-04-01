@@ -367,7 +367,7 @@
             <noStLib>0</noStLib>
             <RepFail>1</RepFail>
             <useFile>1</useFile>
-            <TextAddressRange>0x08000000</TextAddressRange>
+            <TextAddressRange>0x08010000</TextAddressRange>
             <DataAddressRange>0x20000000</DataAddressRange>
             <pXoBase></pXoBase>
             <ScatterFile>.\atk_f407_lwip_extsram.sct</ScatterFile>

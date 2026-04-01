@@ -23,13 +23,13 @@
 #include "./SYSTEM/sys/sys.h"
 
 /* 用户需要根据设备信息完善以下宏定义中的三元组内容 */
-#define USER_DEVICE_NAME "MY_MQTT"							           /* 设备名 */
+#define USER_DEVICE_NAME "MY_MQTT"									   /* 设备名 */
 #define USER_PRODUCT_ID "8q4Ad1z2jn"								   /* 产品ID */
 #define USER_ACCESS_KEY "s6W5Qf29VVc1gaUfA5VBt+XZbyPBC/Wpk7Ntf7vNE0E=" /* 产品密钥 */
 #define USER_DEVICE_ID "2561024859"									   /* 产品设备ID */
 #define USER_KEY "RTdyTTMwcm5Cd1YzSTFOZGQ2TTVFQUpVMWMxV0lCc0Q="		   /* 设备密钥 */
 /* 该密码需要onenet提供的token软件计算得出 */
-#define PASSWORD "version=2018-10-31&res=products%2F8q4Ad1z2jn%2Fdevices%2FMY_MQTT&et=1798732799&method=md5&sign=AtwcRCuevTvN1Wr9HXTXKA%3D%3D"
+#define PASSWORD "version=2018-10-31&res=products%2F8q4Ad1z2jn&et=1893456000&method=sha1&sign=vw2LFxZMrYawijQhxQRSJ3aC4CQ%3D"
 /* 连接调试开关: 1=直接使用上面的PASSWORD; 0=运行时根据USER_KEY生成token */
 #define USE_ONENET_STATIC_PASSWORD 0
 
@@ -38,6 +38,11 @@
 #define DEVICE_SUBSCRIBE "$sys/" USER_PRODUCT_ID "/" USER_DEVICE_NAME "/dp/post/json/+" /* 订阅 */
 #define DEVICE_PUBLISH "$sys/" USER_PRODUCT_ID "/" USER_DEVICE_NAME "/dp/post/json"		/* 发布 */
 #define SERVER_PUBLISH "$sys/" USER_PRODUCT_ID "/" USER_DEVICE_NAME "/cmd/request/+"	/* 服务器下发命令 */
+
+/* HTTP文件下载参数(用于UPdata_info=1触发下载test.bin) */
+#define UPDATE_HTTP_HOST "192.168.137.1" // 本地HTTP服务器地址，本地搭建一个HTTP服务器，放在与test.bin同一目录下
+#define UPDATE_HTTP_PORT 9000  //端口号根据实际情况修改
+#define UPDATE_HTTP_PATH "/test.bin"
 
 typedef struct
 {

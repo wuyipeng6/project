@@ -32,6 +32,7 @@
 
 int main(void)
 {
+	//SCB->VTOR = FLASH_BASE | 0x10000; /* 设置向量表偏移地址为0x10000(64KB)，跳过Bootloader的中断向量表 */
 	HAL_Init();							/* 初始化HAL库 */
 	sys_stm32_clock_init(336, 8, 2, 7); /* 设置时钟,168Mhz */
 	delay_init(168);					/* 延时初始化 */

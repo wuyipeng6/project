@@ -1,19 +1,19 @@
 /**
  ****************************************************************************************************
  * @file        lwip_demo
- * @author      ÕıµãÔ­×ÓÍÅ¶Ó(ALIENTEK)
+ * @author      æ­£ç‚¹åŸå­å›¢é˜Ÿ(ALIENTEK)
  * @version     V1.0
  * @date        2022-08-01
- * @brief       lwIP+OneNET+MQTTÊµÑé
- * @license     Copyright (c) 2020-2032, ¹ãÖİÊĞĞÇÒíµç×Ó¿Æ¼¼ÓĞÏŞ¹«Ë¾
+ * @brief       lwIP+OneNET+MQTTå®éªŒ
+ * @license     Copyright (c) 2020-2032, å¹¿å·å¸‚æ˜Ÿç¿¼ç”µå­ç§‘æŠ€æœ‰é™å…¬å¸
  ****************************************************************************************************
  * @attention
  *
- * ÊµÑéÆ½Ì¨:ÕıµãÔ­×Ó Ì½Ë÷Õß F407¿ª·¢°å
- * ÔÚÏßÊÓÆµ:www.yuanzige.com
- * ¼¼ÊõÂÛÌ³:www.openedv.com
- * ¹«Ë¾ÍøÖ·:www.alientek.com
- * ¹ºÂòµØÖ·:openedv.taobao.com
+ * å®éªŒå¹³å°:æ­£ç‚¹åŸå­ æ¢ç´¢è€… F407å¼€å‘æ¿
+ * åœ¨çº¿è§†é¢‘:www.yuanzige.com
+ * æŠ€æœ¯è®ºå›:www.openedv.com
+ * å…¬å¸ç½‘å€:www.alientek.com
+ * è´­ä¹°åœ°å€:openedv.taobao.com
  *
  ****************************************************************************************************
  */
@@ -24,8 +24,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <netdb.h>
+#include <ctype.h>
 #include "lwip/apps/mqtt.h"
 #include "lwip/dns.h"
+#include "lwip/sockets.h"
+#include "lwip/inet.h"
 #include "./BSP/LCD/lcd.h"
 #include "lwip_comm.h"
 #include "lwip_demo.h"
@@ -35,33 +38,33 @@
 #include <stdlib.h>
 #include "cJSON.h"
 
-/* oneNET²Î¿¼ÎÄÕÂ£ºhttps://open.iot.10086.cn/doc/v5/develop/detail/251 */
+/* oneNETå‚è€ƒæ–‡ç« ï¼šhttps://open.iot.10086.cn/doc/v5/develop/detail/251 */
 
 // static const struct mqtt_connect_client_info_t mqtt_client_info =
 //{
-//     "MQTT",     /* Éè±¸Ãû */
-//     "366007",   /* ²úÆ·ID */
+//     "MQTT",     /* è®¾å¤‡å */
+//     "366007",   /* äº§å“ID */
 //     "version=2018-10-31&res=products%2F366007%2Fdevices%2FMQTT&et=1672735919&method=md5&sign=qI0pgDJnICGoPdhNi%2BHtfg%3D%3D", /* pass */
 //     100,  /* keep alive */
 //     NULL, /* will_topic */
 //     NULL, /* will_msg */
 //     0,    /* will_qos */
 //     0     /* will_retain */
-// #if LWIP_ALTCP && LWIP_ALTCP_TLS  /* ¼ÓÃÜ²Ù×÷£¬ÎÒÃÇÒ»°ã²»Ê¹ÓÃ¼ÓÃÜ²Ù×÷ */
+// #if LWIP_ALTCP && LWIP_ALTCP_TLS  /* åŠ å¯†æ“ä½œï¼Œæˆ‘ä»¬ä¸€èˆ¬ä¸ä½¿ç”¨åŠ å¯†æ“ä½œ */
 //   , NULL
 // #endif
 // };
 
 static ip_addr_t g_mqtt_ip;
 static mqtt_client_t *g_mqtt_client;
-float g_temp = 0;  /* ÎÂ¶ÈÖµ */
-float g_humid = 0; /* Êª¶ÈÖµ */
+uint16_t g_temp = 0;  /* æ¸©åº¦å€¼ */
+uint16_t g_humid = 0; /* æ¹¿åº¦å€¼ */
 unsigned char g_payload_out[200];
 int g_payload_out_len = 0;
-int g_publish_flag = 0; /* ·¢²¼³É¹¦±êÖ¾Î» */
+int g_publish_flag = 0; /* å‘å¸ƒæˆåŠŸæ ‡å¿—ä½ */
 onenet_info_t g_onenet_info = {"", "", "", "", ""};
 
-/* MQTTÏÂĞĞÊı¾İ»º´æ(´¦Àí·ÖÆ¬Êı¾İÁ÷) */
+/* MQTTä¸‹è¡Œæ•°æ®ç¼“å­˜(å¤„ç†åˆ†ç‰‡æ•°æ®æµ) */
 static char g_incoming_topic[128] = {0};
 static char g_incoming_payload[256] = {0};
 static u16_t g_incoming_offset = 0;
@@ -80,11 +83,12 @@ typedef enum
 
 static volatile uint8_t g_mqtt_need_reconnect = 0;
 static volatile uint8_t g_mqtt_online = 0;
+static volatile uint8_t g_update_pending = 0;
 static mqtt_sm_state_t g_mqtt_sm_state = MQTT_SM_DNS_RESOLVE;
 static uint32_t g_reconnect_backoff_ms = MQTT_RECONNECT_BACKOFF_MIN_MS;
 static TickType_t g_reconnect_deadline = 0;
 
-/* Ç°ÏòÉùÃ÷£º¸Ã»Øµ÷ÔÚÎÄ¼şºó²¿¶¨Òå£¬µ«ÔÚÇ°ÃæÒÑ±»´«¸ømqtt_publish() */
+/* å‰å‘å£°æ˜ï¼šè¯¥å›è°ƒåœ¨æ–‡ä»¶åéƒ¨å®šä¹‰ï¼Œä½†åœ¨å‰é¢å·²è¢«ä¼ ç»™mqtt_publish() */
 static void mqtt_publish_request_cb(void *arg, err_t err);
 
 static void mqtt_release_resources(void)
@@ -122,14 +126,14 @@ static void mqtt_schedule_reconnect_backoff(void)
 }
 
 /**
- * @brief       Ê¹ÓÃcJSON¹¹½¨OneNET¸ñÊ½µÄÊı¾İÉÏ±¨JSON²¢·¢²¼
- * @param       client: MQTT¿Í»§¶ËÖ¸Õë
- * @param       temp: ÎÂ¶ÈÖµ
- * @param       humid: Êª¶ÈÖµ
- * @return      0=³É¹¦, -1=Ê§°Ü
- * @note        ×Ô¶¯ÊÍ·ÅcJSON¶ÔÏóºÍÉú³ÉµÄ×Ö·û´®ÄÚ´æ
+ * @brief       ä½¿ç”¨cJSONæ„å»ºOneNETæ ¼å¼çš„æ•°æ®ä¸ŠæŠ¥JSONå¹¶å‘å¸ƒ
+ * @param       client: MQTTå®¢æˆ·ç«¯æŒ‡é’ˆ
+ * @param       temp: æ¸©åº¦å€¼
+ * @param       humid: æ¹¿åº¦å€¼
+ * @return      0=æˆåŠŸ, -1=å¤±è´¥
+ * @note        è‡ªåŠ¨é‡Šæ”¾cJSONå¯¹è±¡å’Œç”Ÿæˆçš„å­—ç¬¦ä¸²å†…å­˜
  */
-static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, float humid)
+static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, double temp, double humid)
 {
 	cJSON *root = NULL;
 	cJSON *dp = NULL;
@@ -146,7 +150,7 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 		return -1;
 	}
 
-	/* ´´½¨¸ù¶ÔÏó */
+	/* åˆ›å»ºæ ¹å¯¹è±¡ */
 	root = cJSON_CreateObject();
 	if (root == NULL)
 	{
@@ -154,10 +158,10 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 		return -1;
 	}
 
-	/* Ìí¼ÓID */
+	/* æ·»åŠ ID */
 	cJSON_AddNumberToObject(root, "id", 123);
 
-	/* ´´½¨"dp"£¨Êı¾İµã£©¶ÔÏó */
+	/* åˆ›å»º"dp"ï¼ˆæ•°æ®ç‚¹ï¼‰å¯¹è±¡ */
 	dp = cJSON_AddObjectToObject(root, "dp");
 	if (dp == NULL)
 	{
@@ -166,7 +170,7 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 		return -1;
 	}
 
-	/* ´´½¨ÎÂ¶ÈÊı×é */
+	/* åˆ›å»ºæ¸©åº¦æ•°ç»„ */
 	temp_array = cJSON_AddArrayToObject(dp, "temperature");
 	if (temp_array == NULL)
 	{
@@ -175,7 +179,7 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 		return -1;
 	}
 
-	/* ÎªÎÂ¶ÈÊı×éÌí¼Ó¶ÔÏó */
+	/* ä¸ºæ¸©åº¦æ•°ç»„æ·»åŠ å¯¹è±¡ */
 	temp_obj = cJSON_CreateObject();
 	if (temp_obj == NULL)
 	{
@@ -186,7 +190,7 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 	cJSON_AddNumberToObject(temp_obj, "v", temp);
 	cJSON_AddItemToArray(temp_array, temp_obj);
 
-	/* ´´½¨Êª¶ÈÊı×é */
+	/* åˆ›å»ºæ¹¿åº¦æ•°ç»„ */
 	humid_array = cJSON_AddArrayToObject(dp, "humidity");
 	if (humid_array == NULL)
 	{
@@ -195,7 +199,7 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 		return -1;
 	}
 
-	/* ÎªÊª¶ÈÊı×éÌí¼Ó¶ÔÏó */
+	/* ä¸ºæ¹¿åº¦æ•°ç»„æ·»åŠ å¯¹è±¡ */
 	humid_obj = cJSON_CreateObject();
 	if (humid_obj == NULL)
 	{
@@ -206,7 +210,7 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 	cJSON_AddNumberToObject(humid_obj, "v", humid);
 	cJSON_AddItemToArray(humid_array, humid_obj);
 
-	/* Éú³É½ô´ÕĞÍJSON×Ö·û´® */
+	/* ç”Ÿæˆç´§å‡‘å‹JSONå­—ç¬¦ä¸² */
 	json_str = cJSON_PrintUnformatted(root);
 	if (json_str == NULL)
 	{
@@ -215,7 +219,7 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 		return -1;
 	}
 
-	/* ¼ì²éJSON×Ö·û´®³¤¶ÈÊÇ·ñ³¬¹ı»º³åÇø */
+	/* æ£€æŸ¥JSONå­—ç¬¦ä¸²é•¿åº¦æ˜¯å¦è¶…è¿‡ç¼“å†²åŒº */
 	int json_len = strlen(json_str);
 	if (json_len > (int)sizeof(g_payload_out) - 1)
 	{
@@ -225,18 +229,18 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 		return -1;
 	}
 
-	/* ¸´ÖÆµ½È«¾Ö»º³åÇø */
+	/* å¤åˆ¶åˆ°å…¨å±€ç¼“å†²åŒº */
 	strcpy((char *)g_payload_out, json_str);
 	g_payload_out_len = json_len;
 
 	printf("[cJSON] Generated sensor data JSON: %s\r\n", g_payload_out);
 
-	/* ·¢²¼MQTTÏûÏ¢ */
+	/* å‘å¸ƒMQTTæ¶ˆæ¯ */
 	err_t err = mqtt_publish(client, DEVICE_PUBLISH, g_payload_out, g_payload_out_len, 1, 0, mqtt_publish_request_cb, NULL);
 	if (err == ERR_OK)
 	{
 		ret = 0;
-		printf("[cJSON] Publish success\r\n");
+		// printf("[cJSON] Publish success\r\n");
 	}
 	else
 	{
@@ -244,7 +248,7 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 		ret = -1;
 	}
 
-	/* ÊÍ·ÅÄÚ´æ£ºÊ×ÏÈÊÍ·ÅJSONÉú³ÉµÄ×Ö·û´®£¬È»ºóÊÍ·ÅcJSON¶ÔÏó */
+	/* é‡Šæ”¾å†…å­˜ï¼šé¦–å…ˆé‡Šæ”¾JSONç”Ÿæˆçš„å­—ç¬¦ä¸²ï¼Œç„¶åé‡Šæ”¾cJSONå¯¹è±¡ */
 	cJSON_free(json_str);
 	cJSON_Delete(root);
 
@@ -252,101 +256,311 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, float temp, flo
 }
 
 /**
- * @brief       Ê¹ÓÃcJSON½âÎöÏÂĞĞÃüÁîÖĞµÄ½Ç¶ÈÖµ
- * @param       payload: ¸ºÔØ×Ö·û´®£¨JSON¸ñÊ½£©
- * @return      0~180=ÓĞĞ§½Ç¶È, -1=Î´Ê¶±ğ
- * @note        Ö§³Ö¸ñÊ½: {"SG90": 90}, {"angle": 90}, {"dp": {"SG90": 90}} µÈ¶àÖÖJSON¸ñÊ½
- *              ×Ô¶¯¼ì²éÀàĞÍºÍ·¶Î§£¬²¢ÔÚÍê³ÉºóÊÍ·ÅcJSON¶ÔÏóÄÚ´æ
+ * @brief       ä»HTTPæœåŠ¡å™¨ä¸‹è½½test.binå¹¶æŒ‰ASCIIè§£ç è¾“å‡ºåˆ°ä¸²å£
+ * @retval      æ— 
  */
-static int mqtt_extract_angle_cJSON(const char *payload)
+static void mqtt_download_testbin_and_print_ascii(void)
 {
-	cJSON *json_root = NULL;
-	cJSON *json_item = NULL;
-	double angle_value = -1;
+	struct hostent *server;
+	struct sockaddr_in server_addr;
+	int sockfd = -1;
+	int ret;
+	char req_buf[192];
+	unsigned char recv_buf[256];
+	int header_done = 0;
+	int header_state = 0;
+	int payload_bytes = 0;
 
-	if (payload == NULL || strlen(payload) == 0)
+	server = gethostbyname(UPDATE_HTTP_HOST);
+	if (server == NULL)
 	{
-		return -1;
+		printf("[HTTP] DNS resolve failed for %s\r\n", UPDATE_HTTP_HOST);
+		return;
 	}
 
-	/* ³¢ÊÔ½âÎöJSON */
-	json_root = cJSON_Parse(payload);
-	if (json_root == NULL)
+	sockfd = lwip_socket(AF_INET, SOCK_STREAM, 0);
+	if (sockfd < 0)
 	{
-		printf("[cJSON] Failed to parse JSON, invalid format\r\n");
-		return -1;
+		printf("[HTTP] socket create failed\r\n");
+		return;
 	}
 
-	/* ³¢ÊÔ·½°¸1: ²éÕÒ "SG90" ×Ö¶Î */
-	json_item = cJSON_GetObjectItem(json_root, "SG90");
-	if (json_item != NULL && cJSON_IsNumber(json_item))
+	memset(&server_addr, 0, sizeof(server_addr));
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(UPDATE_HTTP_PORT);
+	memcpy(&server_addr.sin_addr, server->h_addr, server->h_length);
+
+	if (lwip_connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0)
 	{
-		angle_value = json_item->valuedouble;
-		if (angle_value >= 0 && angle_value <= 180)
+		printf("[HTTP] connect failed\r\n");
+		lwip_close(sockfd);
+		return;
+	}
+
+	snprintf(req_buf, sizeof(req_buf),
+			 "GET %s HTTP/1.1\r\nHost: %s:%d\r\nConnection: close\r\n\r\n",
+			 UPDATE_HTTP_PATH, UPDATE_HTTP_HOST, UPDATE_HTTP_PORT);
+
+	if (lwip_send(sockfd, req_buf, strlen(req_buf), 0) < 0)
+	{
+		printf("[HTTP] send request failed\r\n");
+		lwip_close(sockfd);
+		return;
+	}
+
+	printf("[HTTP] download begin: http://%s:%d%s\r\n", UPDATE_HTTP_HOST, UPDATE_HTTP_PORT, UPDATE_HTTP_PATH);
+	printf("[HTTP] payload(ascii):\r\n");
+
+	while ((ret = lwip_recv(sockfd, recv_buf, sizeof(recv_buf), 0)) > 0)
+	{
+		int i;
+		for (i = 0; i < ret; i++)
 		{
-			printf("[cJSON] Found SG90 field: %.0f\r\n", angle_value);
-			cJSON_Delete(json_root);
-			return (int)angle_value;
-		}
-	}
+			unsigned char ch = recv_buf[i];
 
-	/* ³¢ÊÔ·½°¸2: ²éÕÒ "angle" ×Ö¶Î */
-	json_item = cJSON_GetObjectItem(json_root, "angle");
-	if (json_item != NULL && cJSON_IsNumber(json_item))
-	{
-		angle_value = json_item->valuedouble;
-		if (angle_value >= 0 && angle_value <= 180)
-		{
-			printf("[cJSON] Found angle field: %.0f\r\n", angle_value);
-			cJSON_Delete(json_root);
-			return (int)angle_value;
-		}
-	}
-
-	/* ³¢ÊÔ·½°¸3: ²éÕÒ "dp" Ç¶Ì×½á¹¹ÖĞµÄ "SG90" */
-	json_item = cJSON_GetObjectItem(json_root, "dp");
-	if (json_item != NULL && cJSON_IsObject(json_item))
-	{
-		cJSON *sg90_item = cJSON_GetObjectItem(json_item, "SG90");
-		if (sg90_item != NULL && cJSON_IsNumber(sg90_item))
-		{
-			angle_value = sg90_item->valuedouble;
-			if (angle_value >= 0 && angle_value <= 180)
+			if (!header_done)
 			{
-				printf("[cJSON] Found dp.SG90 field: %.0f\r\n", angle_value);
-				cJSON_Delete(json_root);
-				return (int)angle_value;
+				if (header_state == 0)
+				{
+					header_state = (ch == '\r') ? 1 : 0;
+				}
+				else if (header_state == 1)
+				{
+					header_state = (ch == '\n') ? 2 : ((ch == '\r') ? 1 : 0);
+				}
+				else if (header_state == 2)
+				{
+					header_state = (ch == '\r') ? 3 : 0;
+				}
+				else
+				{
+					if (ch == '\n')
+					{
+						header_done = 1;
+					}
+					header_state = 0;
+				}
+				continue;
+			}
+
+			payload_bytes++;
+			if (isprint((int)ch) || ch == '\r' || ch == '\n' || ch == '\t')
+			{
+				printf("%c", ch);
+			}
+			else
+			{
+				printf(".");
 			}
 		}
 	}
 
-	/* ½âÎöÊ§°Ü»òÊıÖµÎŞĞ§ */
-	printf("[cJSON] No valid SG90/angle field found or value out of range\r\n");
+	printf("\r\n[HTTP] download done, payload bytes=%d\r\n", payload_bytes);
+	lwip_close(sockfd);
+}
+
+typedef enum
+{
+	MQTT_CMD_ITEM_NONE = 0,
+	MQTT_CMD_ITEM_SG90,
+	MQTT_CMD_ITEM_UPDATE_INFO
+} mqtt_cmd_item_t;
+
+/**
+ * @brief       è§„èŒƒåŒ–payloadå­—ç¬¦ä¸²ï¼Œå…¼å®¹ä¸­æ–‡è¾“å…¥æ³•å¯¼è‡´çš„æ™ºèƒ½å¼•å·/å…¨è§’ç¬¦å·
+ * @param       src: åŸå§‹å­—ç¬¦ä¸²
+ * @param       dst: ç›®æ ‡ç¼“å†²åŒº
+ * @param       dst_size: ç›®æ ‡ç¼“å†²åŒºå¤§å°
+ * @retval      1: å‘ç”Ÿè¿‡æ›¿æ¢ 0: æœªæ›¿æ¢
+ */
+static int mqtt_normalize_payload_text(const char *src, char *dst, size_t dst_size)
+{
+	size_t i = 0;
+	size_t j = 0;
+	int changed = 0;
+
+	if (src == NULL || dst == NULL || dst_size < 2)
+	{
+		return 0;
+	}
+
+	while (src[i] != '\0' && (j + 1) < dst_size)
+	{
+		unsigned char c0 = (unsigned char)src[i];
+		unsigned char c1 = (unsigned char)src[i + 1];
+		unsigned char c2 = (unsigned char)src[i + 2];
+
+		/* â€œ â€ -> " */
+		if (c0 == 0xE2 && c1 == 0x80 && (c2 == 0x9C || c2 == 0x9D))
+		{
+			dst[j++] = '"';
+			i += 3;
+			changed = 1;
+			continue;
+		}
+
+		/* ï½› ï½ ï¼‚ ï¼š ï¼Œ -> { } " : , */
+		if (c0 == 0xEF && c1 == 0xBD && c2 == 0x9B) /* ï½› */
+		{
+			dst[j++] = '{';
+			i += 3;
+			changed = 1;
+			continue;
+		}
+		if (c0 == 0xEF && c1 == 0xBD && c2 == 0x9D) /* ï½ */
+		{
+			dst[j++] = '}';
+			i += 3;
+			changed = 1;
+			continue;
+		}
+		if (c0 == 0xEF && c1 == 0xBC && c2 == 0x82) /* ï¼‚ */
+		{
+			dst[j++] = '"';
+			i += 3;
+			changed = 1;
+			continue;
+		}
+		if (c0 == 0xEF && c1 == 0xBC && c2 == 0x9A) /* ï¼š */
+		{
+			dst[j++] = ':';
+			i += 3;
+			changed = 1;
+			continue;
+		}
+		if (c0 == 0xEF && c1 == 0xBC && c2 == 0x8C) /* ï¼Œ */
+		{
+			dst[j++] = ',';
+			i += 3;
+			changed = 1;
+			continue;
+		}
+
+		dst[j++] = (char)c0;
+		i++;
+	}
+
+	dst[j] = '\0';
+	return changed;
+}
+
+/**
+ * @brief       ç»Ÿä¸€è§£æpayloadï¼Œæå–itemç±»å‹å’Œå€¼
+ * @param       payload: MQTTè´Ÿè½½
+ * @param       item_type: è¾“å‡ºitemç±»å‹
+ * @param       item_value: è¾“å‡ºitemæ•°å€¼
+ * @retval      0: æˆåŠŸ -1: å¤±è´¥
+ */
+static int mqtt_parse_payload_item(const char *payload, mqtt_cmd_item_t *item_type, int *item_value)
+{
+	cJSON *json_root = NULL;
+	cJSON *json_item = NULL;
+	cJSON *json_dp = NULL;
+	char payload_norm[sizeof(g_incoming_payload)] = {0};
+
+	if (payload == NULL || item_type == NULL || item_value == NULL || strlen(payload) == 0)
+	{
+		return -1;
+	}
+
+	*item_type = MQTT_CMD_ITEM_NONE;
+	*item_value = 0;
+
+	json_root = cJSON_Parse(payload);
+	if (json_root == NULL)
+	{
+		if (mqtt_normalize_payload_text(payload, payload_norm, sizeof(payload_norm)) != 0)
+		{
+			json_root = cJSON_Parse(payload_norm);
+			if (json_root != NULL)
+			{
+				printf("[MQTT CMD] payload normalized: %s\r\n", payload_norm);
+			}
+		}
+
+		if (json_root == NULL)
+		{
+			return -1;
+		}
+	}
+
+	/* ä¼˜å…ˆè§£ææ ¹å¯¹è±¡ */
+	json_item = cJSON_GetObjectItem(json_root, "SG90");
+	if (json_item != NULL && cJSON_IsNumber(json_item))
+	{
+		*item_type = MQTT_CMD_ITEM_SG90;
+		*item_value = json_item->valueint;
+		cJSON_Delete(json_root);
+		return 0;
+	}
+
+	json_item = cJSON_GetObjectItem(json_root, "UPdata_info");
+	if (json_item != NULL && cJSON_IsNumber(json_item))
+	{
+		*item_type = MQTT_CMD_ITEM_UPDATE_INFO;
+		*item_value = json_item->valueint;
+		cJSON_Delete(json_root);
+		return 0;
+	}
+
+	/* å…¼å®¹dpåµŒå¥—ç»“æ„ */
+	json_dp = cJSON_GetObjectItem(json_root, "dp");
+	if (json_dp != NULL && cJSON_IsObject(json_dp))
+	{
+		json_item = cJSON_GetObjectItem(json_dp, "SG90");
+		if (json_item != NULL && cJSON_IsNumber(json_item))
+		{
+			*item_type = MQTT_CMD_ITEM_SG90;
+			*item_value = json_item->valueint;
+			cJSON_Delete(json_root);
+			return 0;
+		}
+
+		json_item = cJSON_GetObjectItem(json_dp, "UPdata_info");
+		if (json_item != NULL && cJSON_IsNumber(json_item))
+		{
+			*item_type = MQTT_CMD_ITEM_UPDATE_INFO;
+			*item_value = json_item->valueint;
+			cJSON_Delete(json_root);
+			return 0;
+		}
+	}
+
 	cJSON_Delete(json_root);
 	return -1;
 }
 
 /**
- * @brief       ½âÎöÏÂĞĞÃüÁî²¢·Ö·¢µ½SG90¶æ»ú¿ØÖÆ½Ó¿Ú£¨Ê¹ÓÃcJSON£©
- * @param       topic: MQTTÖ÷Ìâ
- * @param       payload: ¸ºÔØ×Ö·û´®£¨JSON¸ñÊ½£©
- * @note        Ê¹ÓÃcJSON½âÎö£¬Ö§³Ö¶àÖÖJSON¸ñÊ½£¬¾ß±¸ÀàĞÍ¼ì²é
+ * @brief       ç»Ÿä¸€è§£æä¸‹è¡Œpayloadï¼Œæ ¹æ®itemç±»å‹æ‰§è¡Œä¸åŒæ“ä½œ
+ * @param       topic: MQTTä¸»é¢˜
+ * @param       payload: è´Ÿè½½å­—ç¬¦ä¸²ï¼ˆJSONæ ¼å¼ï¼‰
+ * @note        å½“å‰æ”¯æŒitem: SG90ã€UPdata_info
  */
-static void mqtt_dispatch_sg90_cmd(const char *topic, const char *payload)
+static void mqtt_dispatch_cmd(const char *topic, const char *payload)
 {
-	int angle;
+	mqtt_cmd_item_t item_type;
+	int item_value;
 
 	printf("[MQTT CMD] topic=%s\r\n", topic);
 	printf("[MQTT CMD] payload=%s\r\n", payload);
 
-	/* Ê¹ÓÃcJSON½âÎö½Ç¶ÈÖµ */
-	angle = mqtt_extract_angle_cJSON(payload);
-
-	if (angle >= 0)
+	if (mqtt_parse_payload_item(payload, &item_type, &item_value) != 0)
 	{
-		if (app_actuator_send_angle((uint16_t)angle, pdMS_TO_TICKS(10)) == pdPASS)
+		printf("[MQTT CMD] invalid payload format, expect {\"SG90\":num} or {\"UPdata_info\":num}\r\n");
+		return;
+	}
+
+	if (item_type == MQTT_CMD_ITEM_SG90)
+	{
+		if (item_value < 0 || item_value > 180)
 		{
-			printf("[SG90] enqueue angle=%d\r\n", angle);
+			printf("[SG90] invalid angle=%d, expect 0~180\r\n", item_value);
+			return;
+		}
+
+		if (app_actuator_send_angle((uint16_t)item_value, pdMS_TO_TICKS(10)) == pdPASS)
+		{
+			printf("[SG90] enqueue angle=%d\r\n", item_value);
 		}
 		else
 		{
@@ -355,16 +569,28 @@ static void mqtt_dispatch_sg90_cmd(const char *topic, const char *payload)
 		return;
 	}
 
-	printf("[SG90] invalid command, expect angle 0~180\r\n");
+	if (item_type == MQTT_CMD_ITEM_UPDATE_INFO)
+	{
+		if (item_value == 1)
+		{
+			g_update_pending = 1;
+			printf("[MQTT CMD] UPdata_info=1, schedule HTTP download\r\n");
+		}
+		else
+		{
+			printf("[MQTT CMD] UPdata_info=%d, ignore\r\n", item_value);
+		}
+		return;
+	}
 }
 
 /**
- * @brief       mqtt½øÈëÊı¾İ»Øµ÷º¯Êı
- * @param       arg£º´«ÈëµÄ²ÎÊı
- * @param       data£ºÊı¾İ
- * @param       len£ºÊı¾İ´óĞ¡
- * @param       flags£º±êÖ¾
- * @retval      ÎŞ
+ * @brief       mqttè¿›å…¥æ•°æ®å›è°ƒå‡½æ•°
+ * @param       argï¼šä¼ å…¥çš„å‚æ•°
+ * @param       dataï¼šæ•°æ®
+ * @param       lenï¼šæ•°æ®å¤§å°
+ * @param       flagsï¼šæ ‡å¿—
+ * @retval      æ— 
  */
 static void
 mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
@@ -386,17 +612,17 @@ mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 		}
 	}
 
-	printf("\r\nMQTT incoming data: len %d, flags %d\n", (int)len, (int)flags);
+	// printf("\r\nMQTT incoming data: len %d, flags %d\n", (int)len, (int)flags);
 
 	if ((flags & MQTT_DATA_FLAG_LAST) != 0)
 	{
-		/* ½ö´¦Àí·şÎñÆ÷ÏÂ·¢ÃüÁîÖ÷Ìâ */
+		/* ä»…å¤„ç†æœåŠ¡å™¨ä¸‹å‘å‘½ä»¤ä¸»é¢˜ */
 		if (strstr(g_incoming_topic, "/cmd/request/") != NULL)
 		{
-			mqtt_dispatch_sg90_cmd(g_incoming_topic, g_incoming_payload);
+			mqtt_dispatch_cmd(g_incoming_topic, g_incoming_payload);
 		}
 
-		/* ÇåÀí£¬×¼±¸½ÓÊÕÏÂÒ»ÌõÏûÏ¢ */
+		/* æ¸…ç†ï¼Œå‡†å¤‡æ¥æ”¶ä¸‹ä¸€æ¡æ¶ˆæ¯ */
 		g_incoming_offset = 0;
 		g_incoming_payload[0] = '\0';
 	}
@@ -405,22 +631,22 @@ mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 	{
 		return;
 	}
-	printf("\r\nMQTT client \"%s\" data cb: len %d, flags %d\n", client_info->client_id, (int)len, (int)flags);
+	// printf("\r\nMQTT client \"%s\" data cb: len %d, flags %d\n", client_info->client_id, (int)len, (int)flags);
 }
 
 /**
- * @brief       mqtt½øÈë·¢²¼»Øµ÷º¯Êı
- * @param       arg£º´«ÈëµÄ²ÎÊı
- * @param       topic£ºÖ÷Ìâ
- * @param       tot_len£ºÖ÷Ìâ´óĞ¡
- * @retval      ÎŞ
+ * @brief       mqttè¿›å…¥å‘å¸ƒå›è°ƒå‡½æ•°
+ * @param       argï¼šä¼ å…¥çš„å‚æ•°
+ * @param       topicï¼šä¸»é¢˜
+ * @param       tot_lenï¼šä¸»é¢˜å¤§å°
+ * @retval      æ— 
  */
 static void
 mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len)
 {
 	const struct mqtt_connect_client_info_t *client_info = (const struct mqtt_connect_client_info_t *)arg;
 
-	/* Ã¿ÌõĞÂÏûÏ¢µ½À´Ê±£¬¼ÇÂ¼topic²¢Çå¿Õ¸ºÔØ»º´æ */
+	/* æ¯æ¡æ–°æ¶ˆæ¯åˆ°æ¥æ—¶ï¼Œè®°å½•topicå¹¶æ¸…ç©ºè´Ÿè½½ç¼“å­˜ */
 	strncpy(g_incoming_topic, topic, sizeof(g_incoming_topic) - 1);
 	g_incoming_topic[sizeof(g_incoming_topic) - 1] = '\0';
 	g_incoming_offset = 0;
@@ -431,16 +657,14 @@ mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len)
 		printf("\r\nMQTT publish cb: topic %s, len %d\r\n", topic, (int)tot_len);
 		return;
 	}
-
-	printf("\r\nMQTT client \"%s\" publish cb: topic %s, len %d\r\n", client_info->client_id,
-		   topic, (int)tot_len);
+	// printf("\r\nMQTT client \"%s\" publish cb: topic %s, len %d\r\n", client_info->client_id,  topic, (int)tot_len);
 }
 
 /**
- * @brief       mqtt·¢²¼»Øµ÷º¯Êı
- * @param       arg£º´«ÈëµÄ²ÎÊı
- * @param       err£º´íÎóÖµ
- * @retval      ÎŞ
+ * @brief       mqttå‘å¸ƒå›è°ƒå‡½æ•°
+ * @param       argï¼šä¼ å…¥çš„å‚æ•°
+ * @param       errï¼šé”™è¯¯å€¼
+ * @retval      æ— 
  */
 static void
 mqtt_publish_request_cb(void *arg, err_t err)
@@ -448,7 +672,7 @@ mqtt_publish_request_cb(void *arg, err_t err)
 	LWIP_UNUSED_ARG(arg);
 	if (err == ERR_OK)
 	{
-		printf("publish success\r\n");
+		// printf("publish success\r\n");
 	}
 	else
 	{
@@ -457,10 +681,10 @@ mqtt_publish_request_cb(void *arg, err_t err)
 }
 
 /**
- * @brief       mqtt¶©ÔÄÏìÓ¦»Øµ÷º¯Êı
- * @param       arg£º´«ÈëµÄ²ÎÊı
- * @param       err£º´íÎóÖµ
- * @retval      ÎŞ
+ * @brief       mqttè®¢é˜…å“åº”å›è°ƒå‡½æ•°
+ * @param       argï¼šä¼ å…¥çš„å‚æ•°
+ * @param       errï¼šé”™è¯¯å€¼
+ * @retval      æ— 
  */
 static void
 mqtt_request_cb(void *arg, err_t err)
@@ -477,15 +701,15 @@ mqtt_request_cb(void *arg, err_t err)
 		printf("\r\nMQTT request cb: err %d\r\n", (int)err);
 		return;
 	}
-	printf("\r\nMQTT client \"%s\" request cb: err %d\r\n", client_info->client_id, (int)err);
+	// printf("\r\nMQTT client \"%s\" request cb: err %d\r\n", client_info->client_id, (int)err);
 }
 
 /**
- * @brief       mqttÁ¬½Ó»Øµ÷º¯Êı
- * @param       client£º¿Í»§¶Ë¿ØÖÆ¿é
- * @param       arg£º´«ÈëµÄ²ÎÊı
- * @param       status£ºÁ¬½Ó×´Ì¬
- * @retval      ÎŞ
+ * @brief       mqttè¿æ¥å›è°ƒå‡½æ•°
+ * @param       clientï¼šå®¢æˆ·ç«¯æ§åˆ¶å—
+ * @param       argï¼šä¼ å…¥çš„å‚æ•°
+ * @param       statusï¼šè¿æ¥çŠ¶æ€
+ * @retval      æ— 
  */
 static void
 mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t status)
@@ -498,7 +722,7 @@ mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t st
 
 	printf("\r\nMQTT client \"%s\" connection cb: status %d\r\n", client_info->client_id, (int)status);
 
-	/* ÅĞ¶ÏÊÇ·ñÁ¬½Ó */
+	/* åˆ¤æ–­æ˜¯å¦è¿æ¥ */
 	if (status == MQTT_CONNECT_ACCEPTED)
 	{
 		app_data_set_mqtt_connected(1);
@@ -507,35 +731,35 @@ mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t st
 		g_reconnect_backoff_ms = MQTT_RECONNECT_BACKOFF_MIN_MS;
 		g_publish_flag = 0;
 
-		/* ÅĞ¶ÏÊÇ·ñÁ¬½Ó */
+		/* åˆ¤æ–­æ˜¯å¦è¿æ¥ */
 		if (mqtt_client_is_connected(client))
 		{
-			/* ÉèÖÃ´«Èë·¢²¼ÇëÇóµÄ»Øµ÷ */
+			/* è®¾ç½®ä¼ å…¥å‘å¸ƒè¯·æ±‚çš„å›è°ƒ */
 			mqtt_set_inpub_callback(g_mqtt_client,
 									mqtt_incoming_publish_cb,
 									mqtt_incoming_data_cb,
 									arg);
 
-			/* ¶©ÔÄ²Ù×÷£¬²¢ÉèÖÃ¶©ÔÄÏìÓ¦»á»Øµ÷º¯Êımqtt_sub_request_cb */
+			/* è®¢é˜…æ“ä½œï¼Œå¹¶è®¾ç½®è®¢é˜…å“åº”ä¼šå›è°ƒå‡½æ•°mqtt_sub_request_cb */
 			err = mqtt_subscribe(client, DEVICE_SUBSCRIBE, 1, mqtt_request_cb, arg);
 
 			if (err == ERR_OK)
 			{
-				printf("mqtt_subscribe return: %d\n", err);
+				// printf("mqtt_subscribe return: %d\n", err);
 				lcd_show_string(5, 170, 210, 16, 16, "mqtt_subscribe succeed", BLUE);
 			}
 
-			/* ¶©ÔÄ·şÎñÆ÷ÏÂ·¢µÄÃüÁî */
+			/* è®¢é˜…æœåŠ¡å™¨ä¸‹å‘çš„å‘½ä»¤ */
 			err = mqtt_subscribe(client, SERVER_PUBLISH, 1, mqtt_request_cb, arg);
 
-			/* ÅĞ¶ÏÊÇ·ñ¶©ÔÄ³É¹¦ */
+			/* åˆ¤æ–­æ˜¯å¦è®¢é˜…æˆåŠŸ */
 			if (err == ERR_OK)
 			{
 				lcd_show_string(5, 190, 210, 16, 16, "mqtt_subscribe cmd succeed", BLUE);
 			}
 		}
 	}
-	else /* Á¬½ÓÊ§°Ü */
+	else /* è¿æ¥å¤±è´¥ */
 	{
 		app_data_set_mqtt_connected(0);
 		g_mqtt_online = 0;
@@ -546,17 +770,17 @@ mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t st
 }
 
 /**
- * @brief       lwip_demo½ø³Ì
- * @param       ÎŞ
- * @retval      ÎŞ
+ * @brief       lwip_demoè¿›ç¨‹
+ * @param       æ— 
+ * @retval      æ— 
  */
 void lwip_demo(void)
 {
-	char pro_id[] = USER_PRODUCT_ID;	 /* ²úÆ·ID */
-	char access_key[] = USER_ACCESS_KEY; /* ²úÆ·ÃÜÔ¿ */
-	char dev_name[] = USER_DEVICE_NAME;	 /* Éè±¸Ãû³Æ */
-	char dev_id[] = USER_DEVICE_ID;		 /* ²úÆ·Éè±¸ID */
-	char key[] = USER_KEY;				 /* Éè±¸ÃÜÔ¿ */
+	char pro_id[] = USER_PRODUCT_ID;	 /* äº§å“ID */
+	char access_key[] = USER_ACCESS_KEY; /* äº§å“å¯†é’¥ */
+	char dev_name[] = USER_DEVICE_NAME;	 /* è®¾å¤‡åç§° */
+	char dev_id[] = USER_DEVICE_ID;		 /* äº§å“è®¾å¤‡ID */
+	char key[] = USER_KEY;				 /* è®¾å¤‡å¯†é’¥ */
 	struct hostent *server;
 	static struct mqtt_connect_client_info_t mqtt_client_info;
 
@@ -565,7 +789,7 @@ void lwip_demo(void)
 	char authorization_buf[256] = {0};
 	err_t mqtt_err;
 
-	/* ÔÚ¾²Ì¬IPÄ£Ê½ÏÂ£¬ÓÅÏÈÊ¹ÓÃ±¾µØÍø¹Ø(Windows ICS)×÷ÎªDNS */
+	/* åœ¨é™æ€IPæ¨¡å¼ä¸‹ï¼Œä¼˜å…ˆä½¿ç”¨æœ¬åœ°ç½‘å…³(Windows ICS)ä½œä¸ºDNS */
 	if (ip_addr_isany(dns_getserver(0)))
 	{
 		ip_addr_t dns0;
@@ -582,7 +806,7 @@ void lwip_demo(void)
 			   g_lwipdev.gateway[3]);
 	}
 
-	/* °Ñ¸÷¸ö²ÎÊı±£´æÔÚg_onenet_info½á¹¹ÌåµÄ³ÉÔ±±äÁ¿ÖĞ */
+	/* æŠŠå„ä¸ªå‚æ•°ä¿å­˜åœ¨g_onenet_infoç»“æ„ä½“çš„æˆå‘˜å˜é‡ä¸­ */
 	memset(g_onenet_info.pro_id, 0, sizeof(g_onenet_info.pro_id));
 	strcpy(g_onenet_info.pro_id, pro_id);
 
@@ -598,7 +822,7 @@ void lwip_demo(void)
 	memset(g_onenet_info.key, 0, sizeof(g_onenet_info.key));
 	strcpy(g_onenet_info.key, key);
 
-	/* ÈÏÖ¤ÃÜÂëÀ´Ô´£ºÓÅÏÈ¿ÉÇĞ»»Îª¾²Ì¬PASSWORD£¬±ãÓÚ¿ìËÙ¶¨Î»¼øÈ¨ÎÊÌâ */
+	/* è®¤è¯å¯†ç æ¥æºï¼šä¼˜å…ˆå¯åˆ‡æ¢ä¸ºé™æ€PASSWORDï¼Œä¾¿äºå¿«é€Ÿå®šä½é‰´æƒé—®é¢˜ */
 #if USE_ONENET_STATIC_PASSWORD
 	strncpy(authorization_buf, PASSWORD, sizeof(authorization_buf) - 1);
 	authorization_buf[sizeof(authorization_buf) - 1] = '\0';
@@ -620,18 +844,18 @@ void lwip_demo(void)
 		return;
 	}
 
-	/* ÉèÖÃÒ»¸ö¿ÕµÄ¿Í»§¶ËĞÅÏ¢½á¹¹ */
+	/* è®¾ç½®ä¸€ä¸ªç©ºçš„å®¢æˆ·ç«¯ä¿¡æ¯ç»“æ„ */
 	memset(&mqtt_client_info, 0, sizeof(mqtt_client_info));
 
-	/* ÉèÖÃ¿Í»§¶ËµÄĞÅÏ¢Á¿ */
-	mqtt_client_info.client_id = (char *)g_onenet_info.dev_name; /* Éè±¸Ãû³Æ */
-	mqtt_client_info.client_user = (char *)g_onenet_info.pro_id; /* ²úÆ·ID */
-	mqtt_client_info.client_pass = (char *)authorization_buf;	 /* ¼ÆËã³öÀ´µÄÃÜÂë */
-	mqtt_client_info.keep_alive = 100;							 /* ±£»îÊ±¼ä */
-	mqtt_client_info.will_msg = NULL;							 // ÒÅÖöÏûÏ¢£¬
-	mqtt_client_info.will_qos = 0;								 // ÒÅÖöÏûÏ¢µÄ·şÎñÖÊÁ¿£¬
-	mqtt_client_info.will_retain = 0;							 // ÒÅÖöÏûÏ¢µÄ±£Áô£¬
-	mqtt_client_info.will_topic = 0;							 // ÒÅÖöÏûÏ¢µÄÖ÷Ìâ£¬
+	/* è®¾ç½®å®¢æˆ·ç«¯çš„ä¿¡æ¯é‡ */
+	mqtt_client_info.client_id = (char *)g_onenet_info.dev_name; /* è®¾å¤‡åç§° */
+	mqtt_client_info.client_user = (char *)g_onenet_info.pro_id; /* äº§å“ID */
+	mqtt_client_info.client_pass = (char *)authorization_buf;	 /* è®¡ç®—å‡ºæ¥çš„å¯†ç  */
+	mqtt_client_info.keep_alive = 100;							 /* ä¿æ´»æ—¶é—´ */
+	mqtt_client_info.will_msg = NULL;							 // é—å˜±æ¶ˆæ¯ï¼Œ
+	mqtt_client_info.will_qos = 0;								 // é—å˜±æ¶ˆæ¯çš„æœåŠ¡è´¨é‡ï¼Œ
+	mqtt_client_info.will_retain = 0;							 // é—å˜±æ¶ˆæ¯çš„ä¿ç•™ï¼Œ
+	mqtt_client_info.will_topic = 0;							 // é—å˜±æ¶ˆæ¯çš„ä¸»é¢˜ï¼Œ
 
 	g_mqtt_sm_state = MQTT_SM_DNS_RESOLVE;
 	g_mqtt_need_reconnect = 0;
@@ -730,15 +954,21 @@ void lwip_demo(void)
 				g_temp = snapshot.temperature;
 				g_humid = snapshot.humidity;
 
-				/* Ê¹ÓÃcJSON¹¹½¨JSONÊı¾İ²¢·¢²¼ */
+				/* ä½¿ç”¨cJSONæ„å»ºJSONæ•°æ®å¹¶å‘å¸ƒ */
 				if (mqtt_publish_sensor_data_cJSON(g_mqtt_client, g_temp, g_humid) == 0)
 				{
-					printf("[MQTT] Sensor data published successfully\r\n");
+					// printf("[MQTT] Sensor data published successfully\r\n");
 				}
 				else
 				{
 					printf("[MQTT] Sensor data publish failed\r\n");
 				}
+			}
+
+			if (g_update_pending != 0)
+			{
+				g_update_pending = 0;
+				mqtt_download_testbin_and_print_ascii();
 			}
 			break;
 

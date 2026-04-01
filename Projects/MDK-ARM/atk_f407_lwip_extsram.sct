@@ -5,10 +5,11 @@
 ; 2) 保持 malloc.c 中 __attribute__((at(...))) 的固定区
 ; 3) 将 lwIP 堆/内存池放入外部SRAM并自动连续分配
 ; *************************************************************
+; bootloader 占用前64KB, App 从0x08010000开始 大小为Ox0000F000 (960KB)，剩余的 64KB 给 bootloader 升级使用
+; 修改程序的时候起始地址不要偏移，后边的大小该为 0x000100000 (1MB)，否则会导致链接错误
+LR_IROM1 0x08000000 0x000100000  {    
 
-LR_IROM1 0x08000000 0x00100000  {    ; 1MB Flash
-
-  ER_IROM1 0x08000000 0x00100000  {  ; code + rodata
+  ER_IROM1 0x08000000 0x000100000  {  ; code + rodata
     *.o (RESET, +First)
     *(InRoot$$Sections)
     .ANY (+RO)

@@ -260,7 +260,7 @@ void start_task(void *pvParameters)
 	g_actuator_queue = xQueueCreate(8, sizeof(uint16_t));
 	g_sensor_period_sem = xSemaphoreCreateBinary();
 	g_app_data_mutex = xSemaphoreCreateMutex();
-	// 创建一个周期为1s的定时器，定时器回调函数中释放g_sensor_period_sem信号量，触发传感器数据采集
+	// 创建一个周期为10s的定时器，定时器回调函数中释放g_sensor_period_sem信号量，触发传感器数据采集
 	g_sensor_timer = xTimerCreate("sensor_tmr", pdMS_TO_TICKS(1000), pdTRUE, NULL, sensor_period_timer_cb);
 	if ((g_actuator_queue == NULL) || (g_sensor_period_sem == NULL) || (g_app_data_mutex == NULL) || (g_sensor_timer == NULL))
 	{
@@ -377,7 +377,7 @@ void sensor_collect_task(void *pvParameters)
 		if (sht2x_basic_read(&temperature, &humidity) == 0)
 		{
 			app_data_set_sensor(temperature, humidity);
-			printf("SHT20 T=%.2fC RH=%.2f%%\r\n", temperature, humidity);
+			//printf("SHT20 T=%.2fC RH=%.2f%%\r\n", temperature, humidity);
 		}
 		else
 		{
@@ -470,11 +470,11 @@ void iwdg_feed_task(void *pvParameters)
 	{
 		if (HAL_IWDG_Refresh(&g_iwdg_handle) != HAL_OK)
 		{
-			printf("IWDG refresh failed.\r\n");
+			//printf("IWDG refresh failed.\r\n");
 		}
 		else
 		{
-			printf("IWDG fed.\r\n");
+			//printf("IWDG fed.\r\n");
 		}
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
