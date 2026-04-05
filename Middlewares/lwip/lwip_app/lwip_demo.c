@@ -926,6 +926,7 @@ void lwip_demo(void)
 				// 这里可以触发一个HTTP下载任务，或者直接在当前任务中执行下载逻辑
 				uint32_t download_result = bootloader_http_download_to_fal(BOOTLOADER_HTTP_IP,
 																		   BOOTLOADER_FILE_NAME, BOOTLOADER_FAL_NAME);
+				//正常不会执行到这里，因为下载函数会重启系统，但如果下载函数返回了结果，我们也打印一下
 				printf("[HTTP Update] Download result: %lu\r\n", download_result);
 			}
 			break;

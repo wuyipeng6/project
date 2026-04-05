@@ -250,7 +250,7 @@ int bootloader_http_download_to_fal(const char *http_url, const char *file_name,
 		return -4;
 	}
 
-	iwdg_feed();//擦除操作可能较慢，提前喂狗一次，防止复位
+	iwdg_feed(); // 擦除操作可能较慢，提前喂狗一次，防止复位
 	if (fal_partition_erase_all(part) < 0)
 	{
 		return -5;
@@ -271,7 +271,7 @@ int bootloader_http_download_to_fal(const char *http_url, const char *file_name,
 		return -6;
 	}
 
-	//网络不好的时候，connect很慢，提前喂狗
+	// 网络不好的时候，connect很慢，提前喂狗
 	iwdg_feed();
 	if (lwip_connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0)
 	{
@@ -292,7 +292,7 @@ int bootloader_http_download_to_fal(const char *http_url, const char *file_name,
 	while ((ret = lwip_recv(sockfd, g_http_recv_buf, sizeof(g_http_recv_buf), 0)) > 0)
 	{
 		recv_count++;
-		if ((recv_count & 0x07U) == 0U)//每接收到8个包，喂狗一次，防止复位
+		if ((recv_count & 0x07U) == 0U) // 每接收到8个包，喂狗一次，防止复位
 		{
 			iwdg_feed();
 		}
@@ -370,5 +370,17 @@ int bootloader_http_download_to_fal(const char *http_url, const char *file_name,
 		return -16;
 	}
 
-	return total_written;
+	/* 下载成功后，置位升级标志并软件复位，重启进入 Bootloader 执行升级 */
+	if (bootloader_set_update_flag() != 0)
+	{
+		return -17;
+	}
+
+	iwdg_feed();
+	__disable_irq();
+	NVIC_SystemReset();
+
+	while (1)
+	{
+	}
 }
