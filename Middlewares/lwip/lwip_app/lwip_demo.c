@@ -37,6 +37,7 @@
 #include "string.h"
 #include <stdlib.h>
 #include "cJSON.h"
+#include "bootloader.h"
 
 /* oneNET参考文章：https://open.iot.10086.cn/doc/v5/develop/detail/251 */
 
@@ -123,6 +124,31 @@ static void mqtt_schedule_reconnect_backoff(void)
 			g_reconnect_backoff_ms = MQTT_RECONNECT_BACKOFF_MAX_MS;
 		}
 	}
+}
+
+static void mqtt_config_dns_servers(void)
+{
+	ip_addr_t dns_primary;
+	ip_addr_t dns_secondary;
+
+	/* 首选 DNS: 114.114.114.114 */
+	IP4_ADDR(&dns_primary, 114, 114, 114, 114);
+	dns_setserver(0, &dns_primary);
+
+	/* 次选 DNS: 本地网关 */
+	IP4_ADDR(&dns_secondary,
+			 g_lwipdev.gateway[0],
+			 g_lwipdev.gateway[1],
+			 g_lwipdev.gateway[2],
+			 g_lwipdev.gateway[3]);
+	dns_setserver(1, &dns_secondary);
+
+	printf("DNS[0]=114.114.114.114\r\n");
+	printf("DNS[1]=%d.%d.%d.%d (gateway)\r\n",
+		   g_lwipdev.gateway[0],
+		   g_lwipdev.gateway[1],
+		   g_lwipdev.gateway[2],
+		   g_lwipdev.gateway[3]);
 }
 
 /**
@@ -253,110 +279,6 @@ static int mqtt_publish_sensor_data_cJSON(mqtt_client_t *client, double temp, do
 	cJSON_Delete(root);
 
 	return ret;
-}
-
-/**
- * @brief       从HTTP服务器下载test.bin并按ASCII解码输出到串口
- * @retval      无
- */
-static void mqtt_download_testbin_and_print_ascii(void)
-{
-	struct hostent *server;
-	struct sockaddr_in server_addr;
-	int sockfd = -1;
-	int ret;
-	char req_buf[192];
-	unsigned char recv_buf[256];
-	int header_done = 0;
-	int header_state = 0;
-	int payload_bytes = 0;
-
-	server = gethostbyname(UPDATE_HTTP_HOST);
-	if (server == NULL)
-	{
-		printf("[HTTP] DNS resolve failed for %s\r\n", UPDATE_HTTP_HOST);
-		return;
-	}
-
-	sockfd = lwip_socket(AF_INET, SOCK_STREAM, 0);
-	if (sockfd < 0)
-	{
-		printf("[HTTP] socket create failed\r\n");
-		return;
-	}
-
-	memset(&server_addr, 0, sizeof(server_addr));
-	server_addr.sin_family = AF_INET;
-	server_addr.sin_port = htons(UPDATE_HTTP_PORT);
-	memcpy(&server_addr.sin_addr, server->h_addr, server->h_length);
-
-	if (lwip_connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0)
-	{
-		printf("[HTTP] connect failed\r\n");
-		lwip_close(sockfd);
-		return;
-	}
-
-	snprintf(req_buf, sizeof(req_buf),
-			 "GET %s HTTP/1.1\r\nHost: %s:%d\r\nConnection: close\r\n\r\n",
-			 UPDATE_HTTP_PATH, UPDATE_HTTP_HOST, UPDATE_HTTP_PORT);
-
-	if (lwip_send(sockfd, req_buf, strlen(req_buf), 0) < 0)
-	{
-		printf("[HTTP] send request failed\r\n");
-		lwip_close(sockfd);
-		return;
-	}
-
-	printf("[HTTP] download begin: http://%s:%d%s\r\n", UPDATE_HTTP_HOST, UPDATE_HTTP_PORT, UPDATE_HTTP_PATH);
-	printf("[HTTP] payload(ascii):\r\n");
-
-	while ((ret = lwip_recv(sockfd, recv_buf, sizeof(recv_buf), 0)) > 0)
-	{
-		int i;
-		for (i = 0; i < ret; i++)
-		{
-			unsigned char ch = recv_buf[i];
-
-			if (!header_done)
-			{
-				if (header_state == 0)
-				{
-					header_state = (ch == '\r') ? 1 : 0;
-				}
-				else if (header_state == 1)
-				{
-					header_state = (ch == '\n') ? 2 : ((ch == '\r') ? 1 : 0);
-				}
-				else if (header_state == 2)
-				{
-					header_state = (ch == '\r') ? 3 : 0;
-				}
-				else
-				{
-					if (ch == '\n')
-					{
-						header_done = 1;
-					}
-					header_state = 0;
-				}
-				continue;
-			}
-
-			payload_bytes++;
-			if (isprint((int)ch) || ch == '\r' || ch == '\n' || ch == '\t')
-			{
-				printf("%c", ch);
-			}
-			else
-			{
-				printf(".");
-			}
-		}
-	}
-
-	printf("\r\n[HTTP] download done, payload bytes=%d\r\n", payload_bytes);
-	lwip_close(sockfd);
 }
 
 typedef enum
@@ -540,6 +462,42 @@ static void mqtt_dispatch_cmd(const char *topic, const char *payload)
 {
 	mqtt_cmd_item_t item_type;
 	int item_value;
+	const char *req_mark;
+	const char *cmd_id;
+	char resp_topic[160];
+	char resp_payload[96];
+	err_t pub_err;
+
+	req_mark = strstr(topic, "/cmd/request/");
+	cmd_id = (req_mark != NULL) ? (req_mark + strlen("/cmd/request/")) : NULL;
+
+	if ((cmd_id != NULL) && (cmd_id[0] != '\0'))
+	{
+		snprintf(resp_topic, sizeof(resp_topic),
+				 "$sys/%s/%s/cmd/response/%s",
+				 USER_PRODUCT_ID,
+				 USER_DEVICE_NAME,
+				 cmd_id);
+	}
+	else
+	{
+		resp_topic[0] = '\0';
+	}
+
+#define MQTT_CMD_RESP(_status, _msg)                                                                                   \
+	do                                                                                                                 \
+	{                                                                                                                  \
+		if ((resp_topic[0] != '\0') && (g_mqtt_client != NULL) && mqtt_client_is_connected(g_mqtt_client))             \
+		{                                                                                                              \
+			snprintf(resp_payload, sizeof(resp_payload), "{\"status\":\"%s\",\"msg\":\"%s\"}", (_status), (_msg));     \
+			pub_err = mqtt_publish(g_mqtt_client, resp_topic, (const u8_t *)resp_payload, (u16_t)strlen(resp_payload), \
+								   1, 0, mqtt_publish_request_cb, NULL);                                               \
+			if (pub_err != ERR_OK)                                                                                     \
+			{                                                                                                          \
+				printf("[MQTT CMD] response publish failed, err=%d\r\n", (int)pub_err);                                \
+			}                                                                                                          \
+		}                                                                                                              \
+	} while (0)
 
 	printf("[MQTT CMD] topic=%s\r\n", topic);
 	printf("[MQTT CMD] payload=%s\r\n", payload);
@@ -547,6 +505,7 @@ static void mqtt_dispatch_cmd(const char *topic, const char *payload)
 	if (mqtt_parse_payload_item(payload, &item_type, &item_value) != 0)
 	{
 		printf("[MQTT CMD] invalid payload format, expect {\"SG90\":num} or {\"UPdata_info\":num}\r\n");
+		MQTT_CMD_RESP("failed", "invalid payload");
 		return;
 	}
 
@@ -555,16 +514,19 @@ static void mqtt_dispatch_cmd(const char *topic, const char *payload)
 		if (item_value < 0 || item_value > 180)
 		{
 			printf("[SG90] invalid angle=%d, expect 0~180\r\n", item_value);
+			MQTT_CMD_RESP("failed", "invalid SG90 angle");
 			return;
 		}
 
 		if (app_actuator_send_angle((uint16_t)item_value, pdMS_TO_TICKS(10)) == pdPASS)
 		{
 			printf("[SG90] enqueue angle=%d\r\n", item_value);
+			MQTT_CMD_RESP("success", "SG90 command accepted");
 		}
 		else
 		{
 			printf("[SG90] enqueue failed\r\n");
+			MQTT_CMD_RESP("failed", "SG90 queue full");
 		}
 		return;
 	}
@@ -575,13 +537,19 @@ static void mqtt_dispatch_cmd(const char *topic, const char *payload)
 		{
 			g_update_pending = 1;
 			printf("[MQTT CMD] UPdata_info=1, schedule HTTP download\r\n");
+			MQTT_CMD_RESP("success", "OTA update started");
 		}
 		else
 		{
 			printf("[MQTT CMD] UPdata_info=%d, ignore\r\n", item_value);
+			MQTT_CMD_RESP("success", "command received");
 		}
 		return;
 	}
+
+	MQTT_CMD_RESP("failed", "unsupported command");
+
+#undef MQTT_CMD_RESP
 }
 
 /**
@@ -789,22 +757,8 @@ void lwip_demo(void)
 	char authorization_buf[256] = {0};
 	err_t mqtt_err;
 
-	/* 在静态IP模式下，优先使用本地网关(Windows ICS)作为DNS */
-	if (ip_addr_isany(dns_getserver(0)))
-	{
-		ip_addr_t dns0;
-		IP4_ADDR(&dns0,
-				 g_lwipdev.gateway[0],
-				 g_lwipdev.gateway[1],
-				 g_lwipdev.gateway[2],
-				 g_lwipdev.gateway[3]);
-		dns_setserver(0, &dns0);
-		printf("DNS server set to %d.%d.%d.%d\r\n",
-			   g_lwipdev.gateway[0],
-			   g_lwipdev.gateway[1],
-			   g_lwipdev.gateway[2],
-			   g_lwipdev.gateway[3]);
-	}
+	/* 双DNS：首选114.114.114.114，次选本地网关 */
+	mqtt_config_dns_servers();
 
 	/* 把各个参数保存在g_onenet_info结构体的成员变量中 */
 	memset(g_onenet_info.pro_id, 0, sizeof(g_onenet_info.pro_id));
@@ -879,6 +833,7 @@ void lwip_demo(void)
 			}
 
 			memcpy(&g_mqtt_ip, server->h_addr, server->h_length);
+			printf("DNS resolve ok: %s -> %s\r\n", HOST_NAME, ipaddr_ntoa(&g_mqtt_ip));
 			g_mqtt_sm_state = MQTT_SM_CONNECT;
 			break;
 
@@ -968,7 +923,10 @@ void lwip_demo(void)
 			if (g_update_pending != 0)
 			{
 				g_update_pending = 0;
-				mqtt_download_testbin_and_print_ascii();
+				// 这里可以触发一个HTTP下载任务，或者直接在当前任务中执行下载逻辑
+				uint32_t download_result = bootloader_http_download_to_fal(BOOTLOADER_HTTP_IP,
+																		   BOOTLOADER_FILE_NAME, BOOTLOADER_FAL_NAME);
+				printf("[HTTP Update] Download result: %lu\r\n", download_result);
 			}
 			break;
 

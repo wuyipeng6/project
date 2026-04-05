@@ -35,6 +35,7 @@
 #include "semphr.h"
 #include "timers.h"
 #include "./SYSTEM/sys/sys.h"
+#include "BSP/IWDG/iwdg.h"
 
 /******************************************************************************************************/
 /*FreeRTOS配置*/
@@ -84,10 +85,8 @@ static SemaphoreHandle_t g_app_data_mutex = NULL;
 static TimerHandle_t g_sensor_timer = NULL;
 
 static app_runtime_data_t g_app_data = {0};
-static IWDG_HandleTypeDef g_iwdg_handle;
 
 static void sensor_period_timer_cb(TimerHandle_t xTimer);
-static uint8_t iwdg_init_3s(void);
 /******************************************************************************************************/
 
 void app_data_set_sensor(float temperature, float humidity)
@@ -260,7 +259,7 @@ void start_task(void *pvParameters)
 	g_actuator_queue = xQueueCreate(8, sizeof(uint16_t));
 	g_sensor_period_sem = xSemaphoreCreateBinary();
 	g_app_data_mutex = xSemaphoreCreateMutex();
-	// 创建一个周期为10s的定时器，定时器回调函数中释放g_sensor_period_sem信号量，触发传感器数据采集
+	// 创建一个周期为1s的定时器，定时器回调函数中释放g_sensor_period_sem信号量，触发传感器数据采集
 	g_sensor_timer = xTimerCreate("sensor_tmr", pdMS_TO_TICKS(1000), pdTRUE, NULL, sensor_period_timer_cb);
 	if ((g_actuator_queue == NULL) || (g_sensor_period_sem == NULL) || (g_app_data_mutex == NULL) || (g_sensor_timer == NULL))
 	{
@@ -377,7 +376,7 @@ void sensor_collect_task(void *pvParameters)
 		if (sht2x_basic_read(&temperature, &humidity) == 0)
 		{
 			app_data_set_sensor(temperature, humidity);
-			//printf("SHT20 T=%.2fC RH=%.2f%%\r\n", temperature, humidity);
+			// printf("SHT20 T=%.2fC RH=%.2f%%\r\n", temperature, humidity);
 		}
 		else
 		{
@@ -468,14 +467,7 @@ void iwdg_feed_task(void *pvParameters)
 
 	while (1)
 	{
-		if (HAL_IWDG_Refresh(&g_iwdg_handle) != HAL_OK)
-		{
-			//printf("IWDG refresh failed.\r\n");
-		}
-		else
-		{
-			//printf("IWDG fed.\r\n");
-		}
+		iwdg_feed();
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
 }
@@ -489,17 +481,4 @@ static void sensor_period_timer_cb(TimerHandle_t xTimer)
 	}
 }
 
-static uint8_t iwdg_init_3s(void)
-{
-	/* LSI约32KHz: 超时时间约=(Reload+1)*Prescaler/LSI */
-	g_iwdg_handle.Instance = IWDG;
-	g_iwdg_handle.Init.Prescaler = IWDG_PRESCALER_64;
-	g_iwdg_handle.Init.Reload = 1499U; /* 约3秒 */
 
-	if (HAL_IWDG_Init(&g_iwdg_handle) != HAL_OK)
-	{
-		return 1;
-	}
-
-	return 0;
-}

@@ -39,10 +39,6 @@
 #define DEVICE_PUBLISH "$sys/" USER_PRODUCT_ID "/" USER_DEVICE_NAME "/dp/post/json"		/* 发布 */
 #define SERVER_PUBLISH "$sys/" USER_PRODUCT_ID "/" USER_DEVICE_NAME "/cmd/request/+"	/* 服务器下发命令 */
 
-/* HTTP文件下载参数(用于UPdata_info=1触发下载test.bin) */
-#define UPDATE_HTTP_HOST "192.168.137.1" // 本地HTTP服务器地址，本地搭建一个HTTP服务器，放在与test.bin同一目录下
-#define UPDATE_HTTP_PORT 9000  //端口号根据实际情况修改
-#define UPDATE_HTTP_PATH "/test.bin"
 
 typedef struct
 {
